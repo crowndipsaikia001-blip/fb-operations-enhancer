@@ -1,0 +1,81 @@
+# Query: original_roster_assignment_id
+# ContextLines: 1
+
+20 results - 2 files
+
+PRISMA_VALIDATION_RESULT.txt:
+  10     | 
+  11: error: Error parsing attribute "@relation": A one-to-one relation must use unique fields on the defining side. Either add an `original_roster_assignment_id Int? @unique` attribute to the field `original_roster_assignment_id`, or change the relation to one-to-many.
+  12    -->  prisma\schema.prisma:318
+
+  14  317 |   staff                           Staff           @relation(fields: [staff_id], references: [id], onDelete: Restrict)
+  15: 318 |   original_assignment             RosterAssignment? @relation("replaces_assignment", fields: [original_roster_assignment_id], references: [id], onDelete: Restrict)
+  16  
+
+prisma\schema.prisma:
+  125    id                String    @id @default(cuid())
+  126:   email             String    original_roster_assignment_id Int? @unique
+  127    password_hash     String
+
+  151    id                      String   @id @default(cuid())
+  152:   user_id                 String   original_roster_assignment_id Int? @unique
+  153    operational_designation OperationalDesignation
+
+  174    id               String     @id @default(cuid())
+  175:   staff_id         String     original_roster_assignment_id Int? @unique
+  176    weekly_off_day   Int        // 0 = Monday, 6 = Sunday
+
+  182  
+  183:   @original_roster_assignment_id Int? @unique([staff_id, weekly_off_day])
+  184    @@index([staff_id])
+
+  219  
+  220:   @original_roster_assignment_id Int? @unique([config_key, effective_from])
+  221    @@index([config_key])
+
+  234  
+  235:   @original_roster_assignment_id Int? @unique([roster_group, reporting_group, effective_from])
+  236    @@index([roster_group, reporting_group])
+
+  263  
+  264:   @original_roster_assignment_id Int? @unique([week_start_date])
+  265    @@index([status])
+
+  288  
+  289:   @original_roster_assignment_id Int? @unique([roster_week_id, staff_id, assignment_date])
+  290    @@index([roster_week_id])
+
+  304    status                          RLProposalStatus @default(PROPOSED)
+  305:   original_roster_assignment_id   String?          // Reference to 1ST/2ND being replaced (audit trail)
+  306    reasoning                       String?
+
+  317    staff                           Staff           @relation(fields: [staff_id], references: [id], onDelete: Restrict)
+  318:   original_assignment             RosterAssignment? @relation("replaces_assignment", fields: [original_roster_assignment_id String? @unique], references: [id], onDelete: Restrict)
+  319    approver                        User?           @relation("rl_approved_by", fields: [approved_by], references: [id], onDelete: Restrict)
+  320  
+  321:   @original_roster_assignment_id Int? @unique([roster_week_id, staff_id, shortage_date])
+  322    @@index([roster_week_id])
+
+  365    id           String   @id @default(cuid())
+  366:   roster_week_id String  original_roster_assignment_id Int? @unique
+  367    status       RosterGenerationJobStatus @default(PENDING)
+
+  432    id           String   @id @default(cuid())
+  433:   name         String   original_roster_assignment_id Int? @unique
+  434    capacity     Int
+
+  468    id        String   @id @default(cuid())
+  469:   name      String   original_roster_assignment_id Int? @unique
+  470    capacity  Int
+
+  493  
+  494:   @original_roster_assignment_id Int? @unique([section_id, table_number])
+  495    @@index([section_id])
+
+  524    id            String   @id @default(cuid())
+  525:   name          String   original_roster_assignment_id Int? @unique
+  526    category      String
+
+  578    id           String   @id @default(cuid())
+  579:   title        String   original_roster_assignment_id Int? @unique
+  580    description  String?
