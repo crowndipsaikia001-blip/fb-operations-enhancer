@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model people {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  property_id String     @db.Uuid
+  role_id     String?    @db.Uuid
+  full_name   String
+  contact     String?
+  created_at  DateTime   @default(now()) @db.Timestamptz(6)
+  properties  properties @relation(fields: [property_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  roles       roles?     @relation(fields: [role_id], references: [id], onUpdate: NoAction)
+  tasks       tasks[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model properties {
+  id                  String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                String
+  address             String?
+  trial_start_date    DateTime       @default(dbgenerated("CURRENT_DATE")) @db.Date
+  subscription_status String         @default("trial")
+  created_at          DateTime       @default(now()) @db.Timestamptz(6)
+  people              people[]
+  reservations        reservations[]
+  roles               roles[]
+  sections            sections[]
+  sops                sops[]
+  tasks               tasks[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model reservations {
+  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  property_id      String     @db.Uuid
+  section_id       String?    @db.Uuid
+  guest_name       String?
+  covers           Int
+  reservation_time DateTime   @db.Timestamptz(6)
+  is_block_booking Boolean    @default(false)
+  status           String     @default("confirmed")
+  created_at       DateTime   @default(now()) @db.Timestamptz(6)
+  properties       properties @relation(fields: [property_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  sections         sections?  @relation(fields: [section_id], references: [id], onUpdate: NoAction)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model roles {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  property_id String     @db.Uuid
+  name        String
+  created_at  DateTime   @default(now()) @db.Timestamptz(6)
+  people      people[]
+  properties  properties @relation(fields: [property_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model sections {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  property_id  String         @db.Uuid
+  name         String
+  created_at   DateTime       @default(now()) @db.Timestamptz(6)
+  reservations reservations[]
+  properties   properties     @relation(fields: [property_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tasks        tasks[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model sops {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  property_id String     @db.Uuid
+  title       String
+  content     String
+  category    String?
+  created_at  DateTime   @default(now()) @db.Timestamptz(6)
+  properties  properties @relation(fields: [property_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model tasks {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  property_id  String     @db.Uuid
+  section_id   String?    @db.Uuid
+  assigned_to  String?    @db.Uuid
+  title        String
+  status       String     @default("pending")
+  completed_at DateTime?  @db.Timestamptz(6)
+  created_at   DateTime   @default(now()) @db.Timestamptz(6)
+  people       people?    @relation(fields: [assigned_to], references: [id], onUpdate: NoAction)
+  properties   properties @relation(fields: [property_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  sections     sections?  @relation(fields: [section_id], references: [id], onUpdate: NoAction)
+}
