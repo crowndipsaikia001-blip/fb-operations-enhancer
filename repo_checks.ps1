@@ -25,12 +25,12 @@ $suspicious = @(
 foreach ($item in $suspicious) {
     $full = Join-Path -Path $repoRoot -ChildPath $item
     if (Test-Path $full) {
-        Write-Host "$item`: EXISTS at $full"
+        Write-Host "${item}: EXISTS at $full"
         $info = Get-Item -LiteralPath $full -Force
         Write-Host "  Type: $(if ($info.PSIsContainer) { 'FOLDER' } else { 'FILE' })"
         Write-Host "  Last Modified: $($info.LastWriteTime)"
     } else {
-        Write-Host "$item`: NOT FOUND"
+        Write-Host "${item}: NOT FOUND"
     }
 }
 Write-Host ""
