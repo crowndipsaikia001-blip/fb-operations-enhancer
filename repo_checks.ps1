@@ -13,14 +13,24 @@ Write-Host "===== UNTRACKED FILES =====" -ForegroundColor Cyan
 git ls-files --others --exclude-standard
 Write-Host ""
 Write-Host "===== SUSPICIOUS ITEMS =====" -ForegroundColor Cyan
-@("0", "0)", "people.id", "supabase", "supabase-inventory", ".gemini\\skills") | ForEach-Object {
-    if (Test-Path $_) {
-        Write-Host "$_`: EXISTS"
-        $info = Get-Item -Path $_ -Force
+$repoRoot = (git rev-parse --show-toplevel)
+# Repo-root-normalized suspicious checks
+$suspicious = @(
+    ".env",
+    ".env.local",
+    "supabase",
+    "supabase/*.sql",
+    ".gemini\\skills"
+)
+foreach ($item in $suspicious) {
+    $full = Join-Path -Path $repoRoot -ChildPath $item
+    if (Test-Path $full) {
+        Write-Host "$item`: EXISTS at $full"
+        $info = Get-Item -LiteralPath $full -Force
         Write-Host "  Type: $(if ($info.PSIsContainer) { 'FOLDER' } else { 'FILE' })"
         Write-Host "  Last Modified: $($info.LastWriteTime)"
     } else {
-        Write-Host "$_`: NOT FOUND"
+        Write-Host "$item`: NOT FOUND"
     }
 }
 Write-Host ""
