@@ -1,0 +1,24 @@
+name: Repo checks
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  repo-checks:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run repo checks
+        shell: powershell
+        run: |
+          Set-Location $env:GITHUB_WORKSPACE
+          Write-Host "Running repo_checks.ps1"
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\repo_checks.ps1"
+      - name: Upload gitleaks report if present
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-reports
+          path: |
+            gitleaks-staged-report.json
+            gitleaks-report.json

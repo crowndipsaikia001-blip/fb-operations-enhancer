@@ -44,3 +44,5 @@ next-env.d.ts
 # Temporary configuration files
 *.tmp
 .gemini/skills/
+tools/
+gitleaks-*.json
