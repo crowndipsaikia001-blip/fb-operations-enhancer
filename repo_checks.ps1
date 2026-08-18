@@ -45,4 +45,25 @@ if ($untracked) {
     Write-Host "No untracked files"
 }
 Write-Host ""
+Write-Host "===== STAGED CHANGES (files) =====" -ForegroundColor Cyan
+$stagedFiles = git diff --cached --name-only -z | ForEach-Object { $_ }
+if ($stagedFiles) {
+    $stagedFiles -split "\0" | Where-Object { $_ -ne "" } | ForEach-Object { Write-Host $_ }
+} else {
+    Write-Host "No staged files"
+}
+Write-Host ""
+Write-Host "===== GITLEAKS (staged) =====" -ForegroundColor Cyan
+$gitleaksPath = Join-Path -Path $PSScriptRoot -ChildPath 'tools\\gitleaks.exe'
+if (Test-Path $gitleaksPath) {
+    & $gitleaksPath detect --staged --report-path (Join-Path $PSScriptRoot 'gitleaks-staged-report.json') | Out-Null
+    if (Test-Path (Join-Path $PSScriptRoot 'gitleaks-staged-report.json')) {
+        Write-Host "gitleaks staged report saved to gitleaks-staged-report.json"
+    } else {
+        Write-Host "gitleaks ran but no report found"
+    }
+} else {
+    Write-Host "gitleaks not found at $gitleaksPath — skip staged gitleaks scan"
+}
+Write-Host ""
 Write-Host "===== END REPO CHECKS =====" -ForegroundColor Cyan
