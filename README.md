@@ -96,6 +96,11 @@ This repository includes helper tooling to make local checks and secret scanning
 
 - repo_checks.ps1 (PowerShell) — run from the repository root to show git status, current branch, remotes, untracked files, suspicious paths (including .gemini/skills), list supabase SQL files if present, top largest tracked/untracked files, list staged files, and (if available) run gitleaks to detect secrets.
 
+- scripts/check_git.ps1 — a smaller repo-root-aware diagnostic script (moved into scripts/) that checks for .env files, supabase SQL files, .gemini/skills and optionally runs local gitleaks if present. Run it with:
+  ```powershell
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check_git.ps1
+  ```
+
   Usage (Windows PowerShell):
   ```powershell
   powershell -NoProfile -ExecutionPolicy Bypass -File .\repo_checks.ps1
