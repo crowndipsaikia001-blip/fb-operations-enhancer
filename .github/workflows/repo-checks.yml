@@ -29,13 +29,13 @@ jobs:
             Write-Host "Skipping gitleaks installation on Windows runner"
           }
       - name: Run repo_checks.ps1
-        shell: powershell
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\repo_checks.ps1"
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\repo_checks.ps1"
       - name: Run scripts/check_git.ps1
-        shell: powershell
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\scripts\check_git.ps1"
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\scripts\check_git.ps1"
       - name: Run gitleaks (if present)
-        shell: powershell
+        shell: pwsh
         run: |
           $gitleaksPath = Join-Path $env:GITHUB_WORKSPACE 'tools\\gitleaks.exe'
           if (Test-Path $gitleaksPath) {
