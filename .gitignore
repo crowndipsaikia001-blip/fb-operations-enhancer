@@ -43,6 +43,11 @@ next-env.d.ts
 /Perplexity-client-/
 # Temporary configuration files
 *.tmp
+
+# project-specific ignores
 .gemini/skills/
 tools/
 gitleaks-*.json
+
+# Supabase migrations (if you prefer not to track generated SQL)
+supabase/migrations/*.sql
