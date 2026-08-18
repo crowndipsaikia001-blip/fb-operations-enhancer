@@ -28,16 +28,16 @@ jobs:
             Write-Host "gitleaks download or install failed: $($_.Exception.Message)" -ForegroundColor Yellow
             Write-Host "Skipping gitleaks installation on Windows runner"
           }
-      - name: Run repo checks
+      - name: Run repo_checks.ps1
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\repo_checks.ps1"
+      - name: Run scripts/check_git.ps1
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\scripts\check_git.ps1"
+      - name: Run gitleaks (if present)
         shell: powershell
         run: |
-          Set-Location $env:GITHUB_WORKSPACE
-          Write-Host "Running repo_checks.ps1"
-          powershell -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\repo_checks.ps1"
-          Write-Host "Running scripts/check_git.ps1"
-          powershell -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\scripts\check_git.ps1"
-          # If gitleaks binary is present on the runner, run it with try/catch
-          $gitleaksPath = Join-Path $env:GITHUB_WORKSPACE 'tools\gitleaks.exe'
+          $gitleaksPath = Join-Path $env:GITHUB_WORKSPACE 'tools\\gitleaks.exe'
           if (Test-Path $gitleaksPath) {
             Write-Host "Running gitleaks on workflow runner"
             try {
