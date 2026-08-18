@@ -1,49 +1,43 @@
-# Lightweight repository diagnostic script (safe to run from repo root)
-# Purpose: quick checks for local development — git status, untracked files, suspicious items, and supabase SQL files
-
-$repoRoot = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
-Set-Location -Path $repoRoot
+# repo-root aware git status and suspicious file checks
+$repoRoot = (git rev-parse --show-toplevel)
+Write-Host "Repository root: $repoRoot" -ForegroundColor Cyan
 
 Write-Host "===== GIT STATUS =====" -ForegroundColor Cyan
-git status --porcelain
+git -C $repoRoot status --porcelain
 Write-Host ""
 Write-Host "===== UNTRACKED FILES =====" -ForegroundColor Cyan
-git ls-files --others --exclude-standard
+git -C $repoRoot ls-files --others --exclude-standard
 Write-Host ""
 Write-Host "===== SUSPICIOUS ITEMS =====" -ForegroundColor Cyan
-# Patterns to check relative to repository root
+# Meaningful suspicious checks; use repo-root-normalized paths
 $suspicious = @(
-    '.env',
-    '.env.local',
-    '.env.*',
-    'supabase',
-    'supabase/*.sql',
-    '.gemini/skills',
-    '*.pem',
-    '*.key'
+    ".env",
+    ".env.local",
+    "supabase",
+    "supabase/*.sql",
+    ".gemini/skills"
 )
-
-foreach ($p in $suspicious) {
-    $full = Join-Path -Path $repoRoot -ChildPath $p
-    if (Test-Path -Path $full) {
-        Write-Host "$p`: EXISTS"
-        $info = Get-Item -Path $full -Force
+foreach ($item in $suspicious) {
+    $full = Join-Path -Path $repoRoot -ChildPath $item
+    if (Test-Path $full) {
+        Write-Host "$item`: EXISTS at $full"
+        $info = Get-Item -LiteralPath $full -Force
         Write-Host "  Type: $(if ($info.PSIsContainer) { 'FOLDER' } else { 'FILE' })"
         Write-Host "  Last Modified: $($info.LastWriteTime)"
     } else {
-        Write-Host "$p`: NOT FOUND"
+        Write-Host "$item`: NOT FOUND"
     }
 }
 
 Write-Host ""
-Write-Host "===== SQL FILES IN SUPABASE/ =====" -ForegroundColor Cyan
-$supabaseDir = Join-Path $repoRoot 'supabase'
-if (Test-Path $supabaseDir) {
-    Get-ChildItem -Path $supabaseDir -Recurse -Filter "*.sql" | ForEach-Object { Write-Host $_.FullName }
+Write-Host "===== OPTIONAL: GITLEAKS (if installed under tools/gitleaks.exe) =====" -ForegroundColor Cyan
+$gitleaks = Join-Path $repoRoot 'tools\\gitleaks.exe'
+if (Test-Path $gitleaks) {
+    & $gitleaks detect --source $repoRoot --report-path (Join-Path $repoRoot 'gitleaks-report.json')
+    if (Test-Path (Join-Path $repoRoot 'gitleaks-report.json')) { Write-Host "gitleaks report saved to gitleaks-report.json" }
 } else {
-    Write-Host "supabase/ folder not found"
+    Write-Host "gitleaks not found at $gitleaks — skipping" -ForegroundColor Yellow
 }
 
 Write-Host ""
-Write-Host "===== NOTE =====" -ForegroundColor Yellow
-Write-Host "This script is intended for local discovery only. For deeper secret scanning, use the provided CI tools (gitleaks/truffleHog) or enable GitHub Advanced Security."
+Write-Host "===== END CHECKS =====" -ForegroundColor Cyan

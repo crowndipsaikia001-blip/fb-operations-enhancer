@@ -46,4 +46,3 @@ next-env.d.ts
 .gemini/skills/
 tools/
 gitleaks-*.json
-release_page.html
