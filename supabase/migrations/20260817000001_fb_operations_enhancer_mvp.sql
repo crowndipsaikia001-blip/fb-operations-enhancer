@@ -10,27 +10,21 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- ================================================================
 -- 1. ENUMS & TYPES
 -- ================================================================
-
 DO $$ BEGIN
     CREATE TYPE user_role AS ENUM ('admin', 'manager', 'supervisor', 'staff');
 EXCEPTION WHEN duplicate_object THEN null; END $$;
-
 DO $$ BEGIN
     CREATE TYPE membership_status AS ENUM ('active', 'inactive', 'suspended');
 EXCEPTION WHEN duplicate_object THEN null; END $$;
-
 DO $$ BEGIN
     CREATE TYPE stock_movement_type AS ENUM ('purchase', 'adjustment', 'transfer_out', 'transfer_in', 'wastage', 'pos_sale');
 EXCEPTION WHEN duplicate_object THEN null; END $$;
-
 DO $$ BEGIN
     CREATE TYPE transfer_status AS ENUM ('pending', 'in_transit', 'received', 'cancelled');
 EXCEPTION WHEN duplicate_object THEN null; END $$;
-
 DO $$ BEGIN
     CREATE TYPE wastage_status AS ENUM ('pending', 'authorized', 'rejected');
 EXCEPTION WHEN duplicate_object THEN null; END $$;
-
 DO $$ BEGIN
     CREATE TYPE audit_action AS ENUM ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE');
 EXCEPTION WHEN duplicate_object THEN null; END $$;
@@ -38,7 +32,6 @@ EXCEPTION WHEN duplicate_object THEN null; END $$;
 -- ================================================================
 -- 2. CORE TABLES (Properties, People, Auth)
 -- ================================================================
-
 CREATE TABLE IF NOT EXISTS properties (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL,
@@ -53,8 +46,7 @@ CREATE TABLE IF NOT EXISTS roles (
     description TEXT
 );
 
--- Seed Roles
-INSERT INTO roles (name, description) VALUES 
+INSERT INTO roles (name, description) VALUES
     ('admin', 'Full system access'),
     ('manager', 'Property management access'),
     ('supervisor', 'Operational oversight'),
@@ -80,14 +72,12 @@ CREATE TABLE IF NOT EXISTS property_memberships (
     UNIQUE(property_id, person_id)
 );
 
--- Index for fast authorization lookups
 CREATE INDEX IF NOT EXISTS idx_property_memberships_person ON property_memberships(person_id);
 CREATE INDEX IF NOT EXISTS idx_property_memberships_property ON property_memberships(property_id);
 
 -- ================================================================
 -- 3. INVENTORY & STOCK TABLES
 -- ================================================================
-
 CREATE TABLE IF NOT EXISTS categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     property_id UUID NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
@@ -123,9 +113,9 @@ CREATE TABLE IF NOT EXISTS stock_movements (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     item_id UUID NOT NULL REFERENCES items(id),
     property_id UUID NOT NULL REFERENCES properties(id),
-    quantity NUMERIC(12, 4) NOT NULL, -- Positive = In, Negative = Out
+    quantity NUMERIC(12, 4) NOT NULL,
     movement_type stock_movement_type NOT NULL,
-    reference_id UUID, -- Polymorphic: PO ID, Transfer ID, Wastage ID, Ticket ID
+    reference_id UUID,
     reason TEXT,
     performed_by UUID REFERENCES people(id),
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -150,15 +140,14 @@ CREATE TABLE IF NOT EXISTS transfer_items (
 );
 
 -- ================================================================
--- 4. OPERATIONS TABLES (Purchases, Wastage, POS)
+-- 4. OPERATIONS TABLES
 -- ================================================================
-
 CREATE TABLE IF NOT EXISTS purchase_orders (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     property_id UUID NOT NULL REFERENCES properties(id),
     supplier_name TEXT,
     order_date DATE DEFAULT CURRENT_DATE,
-    status TEXT DEFAULT 'pending', -- pending, received, cancelled
+    status TEXT DEFAULT 'pending',
     total_cost NUMERIC(12, 2),
     created_by UUID REFERENCES people(id),
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -195,18 +184,18 @@ CREATE TABLE IF NOT EXISTS wastage_items (
 CREATE TABLE IF NOT EXISTS pos_tickets (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     property_id UUID NOT NULL REFERENCES properties(id),
-    external_ticket_id TEXT NOT NULL, -- ID from POS system
-    source_system TEXT NOT NULL, -- e.g., 'Square', 'Toast'
+    external_ticket_id TEXT NOT NULL,
+    source_system TEXT NOT NULL,
     total_amount NUMERIC(12, 2),
     ticket_date TIMESTAMPTZ DEFAULT NOW(),
     processed_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(property_id, source_system, external_ticket_id) -- IDEMPOTENCY CONSTRAINT
+    UNIQUE(property_id, source_system, external_ticket_id)
 );
 
 CREATE TABLE IF NOT EXISTS pos_ticket_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     ticket_id UUID NOT NULL REFERENCES pos_tickets(id) ON DELETE CASCADE,
-    item_id UUID REFERENCES items(id), -- Nullable if unmapped
+    item_id UUID REFERENCES items(id),
     external_item_id TEXT,
     item_name TEXT,
     quantity NUMERIC(12, 4) NOT NULL,
@@ -216,7 +205,6 @@ CREATE TABLE IF NOT EXISTS pos_ticket_items (
 -- ================================================================
 -- 5. AUDIT LOGGING
 -- ================================================================
-
 CREATE TABLE IF NOT EXISTS audit_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     table_name TEXT NOT NULL,
@@ -231,29 +219,19 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 -- ================================================================
 -- 6. TRIGGERS & FUNCTIONS
 -- ================================================================
-
--- 6.1 Stock Balance Trigger
--- Ensures stock_levels.quantity matches sum of movements
 CREATE OR REPLACE FUNCTION update_stock_balance() RETURNS TRIGGER AS $$
-DECLARE
-    current_balance NUMERIC(12, 4);
+DECLARE current_balance NUMERIC(12, 4);
 BEGIN
-    -- Calculate net balance from all movements for this item/property
     SELECT COALESCE(SUM(quantity), 0) INTO current_balance
     FROM stock_movements
     WHERE item_id = NEW.item_id AND property_id = NEW.property_id;
-
     UPDATE stock_levels
-    SET quantity = current_balance,
-        updated_at = NOW()
+    SET quantity = current_balance, updated_at = NOW()
     WHERE item_id = NEW.item_id AND property_id = NEW.property_id;
-
-    -- If no stock level row exists, create one
     IF NOT FOUND THEN
         INSERT INTO stock_levels (item_id, property_id, quantity, updated_at)
         VALUES (NEW.item_id, NEW.property_id, current_balance, NOW());
     END IF;
-
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
@@ -262,26 +240,17 @@ CREATE TRIGGER trg_update_stock_balance
 AFTER INSERT OR UPDATE OF quantity, item_id, property_id ON stock_movements
 FOR EACH ROW EXECUTE FUNCTION update_stock_balance();
 
--- 6.2 Wastage Exactly-Once Trigger
--- Creates stock movement ONLY when status changes to 'authorized'
--- FIXED: Prevents re-authorization after rejection
 CREATE OR REPLACE FUNCTION process_wastage_authorization() RETURNS TRIGGER AS $$
 BEGIN
-    -- Block re-authorization if previously rejected
     IF OLD.status = 'rejected' AND NEW.status = 'authorized' THEN
         RAISE EXCEPTION 'Cannot authorize a previously rejected wastage request. Create a new request.';
     END IF;
-
-    -- Only process on transition TO 'authorized' FROM a different status
     IF OLD.status IS DISTINCT FROM NEW.status AND NEW.status = 'authorized' THEN
-        -- Insert negative movement for each item in the wastage request
         INSERT INTO stock_movements (item_id, property_id, quantity, movement_type, reference_id, reason, performed_by)
         SELECT wi.item_id, wr.property_id, -wi.quantity, 'wastage', wr.id, wi.reason_detail, wr.authorized_by
-        FROM wastage_items wi
-        JOIN wastage_requests wr ON wi.wastage_id = wr.id
+        FROM wastage_items wi JOIN wastage_requests wr ON wi.wastage_id = wr.id
         WHERE wr.id = NEW.id;
     END IF;
-    
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
@@ -290,8 +259,6 @@ CREATE TRIGGER trg_process_wastage_authorization
 AFTER UPDATE OF status ON wastage_requests
 FOR EACH ROW EXECUTE FUNCTION process_wastage_authorization();
 
--- 6.3 Audit Log Immutability Trigger
--- Prevents direct updates/deletes on audit_logs
 CREATE OR REPLACE FUNCTION protect_audit_logs() RETURNS TRIGGER AS $$
 BEGIN
     IF TG_OP = 'UPDATE' OR TG_OP = 'DELETE' THEN
@@ -305,12 +272,11 @@ CREATE TRIGGER trg_protect_audit_logs
 BEFORE UPDATE OR DELETE ON audit_logs
 FOR EACH ROW EXECUTE FUNCTION protect_audit_logs();
 
--- 6.4 Generic Audit Logger Trigger Function
 CREATE OR REPLACE FUNCTION log_audit_changes() RETURNS TRIGGER AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
         INSERT INTO audit_logs (table_name, record_id, action, new_data, changed_by)
-        VALUES (TG_TABLE_NAME, NEW.id, 'INSERT', to_jsonb(NEW), NULL); -- User ID injected via app or session if needed
+        VALUES (TG_TABLE_NAME, NEW.id, 'INSERT', to_jsonb(NEW), NULL);
         RETURN NEW;
     ELSIF TG_OP = 'UPDATE' THEN
         INSERT INTO audit_logs (table_name, record_id, action, old_data, new_data, changed_by)
@@ -325,80 +291,40 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
--- Apply audit trigger to key tables (excluding audit_logs itself to avoid recursion)
 DO $$
-DECLARE
-    t TEXT;
+DECLARE t TEXT;
 BEGIN
-    FOR t IN 
-        SELECT tablename FROM pg_tables 
-        WHERE schemaname = 'public' 
-        AND tablename != 'audit_logs'
-        AND tablename NOT LIKE 'pg_%'
-    LOOP
+    FOR t IN SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename != 'audit_logs' AND tablename NOT LIKE 'pg_%' LOOP
         EXECUTE format('DROP TRIGGER IF EXISTS trg_audit_%I ON %I', t, t);
         EXECUTE format('CREATE TRIGGER trg_audit_%I AFTER INSERT OR UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION log_audit_changes()', t, t);
     END LOOP;
 END $$;
 
--- ================================================================
--- 7. ROW LEVEL SECURITY (RLS)
--- ================================================================
-
--- Enable RLS on all tables
 DO $$
-DECLARE
-    t TEXT;
+DECLARE t TEXT;
 BEGIN
-    FOR t IN 
-        SELECT tablename FROM pg_tables 
-        WHERE schemaname = 'public' 
-        AND tablename NOT LIKE 'pg_%'
-    LOOP
+    FOR t IN SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename NOT LIKE 'pg_%' LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     END LOOP;
 END $$;
 
--- Helper Function: Get Current User's Role for a Property
--- Returns the highest privilege role (lowest enum value) the user has for the property
 CREATE OR REPLACE FUNCTION get_current_user_role(target_property_id UUID) RETURNS user_role AS $$
-DECLARE
-    user_role_val user_role;
-    current_person_id UUID;
+DECLARE user_role_val user_role; current_person_id UUID;
 BEGIN
-    -- Get person ID from auth context (assumes auth.uid() is set)
     SELECT id INTO current_person_id FROM people WHERE auth_id = auth.uid();
-    
-    IF current_person_id IS NULL THEN
-        RETURN NULL;
-    END IF;
-
-    -- Get the role with the highest privilege (min enum value)
-    SELECT role INTO user_role_val
-    FROM property_memberships
-    WHERE person_id = current_person_id
-      AND property_id = target_property_id
-      AND status = 'active'
-    ORDER BY role ASC -- Enum order: admin < manager < supervisor < staff
-    LIMIT 1;
-
+    IF current_person_id IS NULL THEN RETURN NULL; END IF;
+    SELECT role INTO user_role_val FROM property_memberships
+    WHERE person_id = current_person_id AND property_id = target_property_id AND status = 'active'
+    ORDER BY role ASC LIMIT 1;
     RETURN user_role_val;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
--- Helper Function: Check if user has at least a specific role level
 CREATE OR REPLACE FUNCTION has_role_at_least(target_property_id UUID, required_role user_role) RETURNS BOOLEAN AS $$
-DECLARE
-    user_role_val user_role;
+DECLARE user_role_val user_role;
 BEGIN
     user_role_val := get_current_user_role(target_property_id);
-    
-    IF user_role_val IS NULL THEN
-        RETURN FALSE;
-    END IF;
-
-    -- Enum comparison: admin < manager < supervisor < staff
-    -- Lower value means higher privilege
+    IF user_role_val IS NULL THEN RETURN FALSE; END IF;
     RETURN user_role_val <= required_role;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
@@ -406,264 +332,99 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 -- ================================================================
 -- RLS POLICIES
 -- ================================================================
-
--- 7.1 Properties
-CREATE POLICY "Users can view properties they belong to" ON properties
-    FOR SELECT USING (has_role_at_least(id, 'staff'));
-
-CREATE POLICY "Managers can insert properties" ON properties
-    FOR INSERT WITH CHECK (has_role_at_least(id, 'manager')); -- Self-check on new row
-
-CREATE POLICY "Managers can update properties they belong to" ON properties
-    FOR UPDATE USING (has_role_at_least(id, 'manager'));
-
-CREATE POLICY "Admins can delete properties" ON properties
-    FOR DELETE USING (has_role_at_least(id, 'admin'));
-
--- 7.2 People
-CREATE POLICY "Users can view themselves" ON people
-    FOR SELECT USING (id = (SELECT id FROM people WHERE auth_id = auth.uid()) OR has_role_at_least((SELECT property_id FROM property_memberships WHERE person_id = people.id LIMIT 1), 'manager'));
--- Simplified: Users can see their own record, managers can see team members (logic simplified for MVP)
-
-CREATE POLICY "Admins can insert people" ON people
-    FOR INSERT WITH CHECK (has_role_at_least((SELECT property_id FROM property_memberships WHERE person_id = people.id LIMIT 1), 'admin'));
-
-CREATE POLICY "Users can update themselves" ON people
-    FOR UPDATE USING (id = (SELECT id FROM people WHERE auth_id = auth.uid()));
-
-CREATE POLICY "Admins can delete people" ON people
-    FOR DELETE USING (has_role_at_least((SELECT property_id FROM property_memberships WHERE person_id = people.id LIMIT 1), 'admin'));
-
--- 7.3 Property Memberships (Source of Truth)
-CREATE POLICY "Users can view memberships in their properties" ON property_memberships
-    FOR SELECT USING (has_role_at_least(property_id, 'staff'));
-
-CREATE POLICY "Managers can manage memberships" ON property_memberships
-    FOR INSERT WITH CHECK (has_role_at_least(property_id, 'manager'));
-
-CREATE POLICY "Managers can update memberships" ON property_memberships
-    FOR UPDATE USING (has_role_at_least(property_id, 'manager'));
-
-CREATE POLICY "Admins can delete memberships" ON property_memberships
-    FOR DELETE USING (has_role_at_least(property_id, 'admin'));
-
--- 7.4 Roles
-CREATE POLICY "Everyone can view roles" ON roles
-    FOR SELECT USING (true);
-
-CREATE POLICY "Admins can modify roles" ON roles
-    FOR INSERT WITH CHECK (has_role_at_least((SELECT property_id FROM property_memberships LIMIT 1), 'admin')); -- Global check
-
-CREATE POLICY "Admins can update roles" ON roles
-    FOR UPDATE USING (has_role_at_least((SELECT property_id FROM property_memberships LIMIT 1), 'admin'));
-
-CREATE POLICY "Admins can delete roles" ON roles
-    FOR DELETE USING (has_role_at_least((SELECT property_id FROM property_memberships LIMIT 1), 'admin'));
-
--- 7.5 Categories
-CREATE POLICY "Staff can view categories" ON categories
-    FOR SELECT USING (has_role_at_least(property_id, 'staff'));
-
-CREATE POLICY "Supervisors can insert categories" ON categories
-    FOR INSERT WITH CHECK (has_role_at_least(property_id, 'supervisor'));
-
-CREATE POLICY "Supervisors can update categories" ON categories
-    FOR UPDATE USING (has_role_at_least(property_id, 'supervisor'));
-
-CREATE POLICY "Managers can delete categories" ON categories
-    FOR DELETE USING (has_role_at_least(property_id, 'manager'));
-
--- 7.6 Items
-CREATE POLICY "Staff can view items" ON items
-    FOR SELECT USING (has_role_at_least(property_id, 'staff'));
-
-CREATE POLICY "Supervisors can insert items" ON items
-    FOR INSERT WITH CHECK (has_role_at_least(property_id, 'supervisor'));
-
-CREATE POLICY "Supervisors can update items" ON items
-    FOR UPDATE USING (has_role_at_least(property_id, 'supervisor'));
-
-CREATE POLICY "Managers can delete items" ON items
-    FOR DELETE USING (has_role_at_least(property_id, 'manager'));
-
--- 7.7 Stock Levels
-CREATE POLICY "Staff can view stock levels" ON stock_levels
-    FOR SELECT USING (has_role_at_least(property_id, 'staff'));
-
-CREATE POLICY "System/Triggers update stock levels" ON stock_levels
-    FOR INSERT WITH CHECK (false); -- Direct insert blocked, only via trigger
-
-CREATE POLICY "System/Triggers update stock levels" ON stock_levels
-    FOR UPDATE USING (true); -- Allowed by trigger logic
-
-CREATE POLICY "Managers can reset stock levels" ON stock_levels
-    FOR DELETE USING (has_role_at_least(property_id, 'manager')); -- Rare, usually via adjustment
-
--- 7.8 Stock Movements
-CREATE POLICY "Staff can view stock movements" ON stock_movements
-    FOR SELECT USING (has_role_at_least(property_id, 'staff'));
-
-CREATE POLICY "System/Triggers record movements" ON stock_movements
-    FOR INSERT WITH CHECK (true); -- Typically inserted by triggers/functions
-
-CREATE POLICY "Prevent modification of movements" ON stock_movements
-    FOR UPDATE USING (false); -- Immutable once recorded
-
-CREATE POLICY "Prevent deletion of movements" ON stock_movements
-    FOR DELETE USING (false); -- Immutable
-
--- 7.9 Transfer Requests
-CREATE POLICY "Staff can view transfers for their properties" ON transfer_requests
-    FOR SELECT USING (has_role_at_least(source_property_id, 'staff') OR has_role_at_least(destination_property_id, 'staff'));
-
-CREATE POLICY "Supervisors can request transfers" ON transfer_requests
-    FOR INSERT WITH CHECK (has_role_at_least(source_property_id, 'supervisor'));
-
-CREATE POLICY "Managers can approve transfers" ON transfer_requests
-    FOR UPDATE USING (
-        (has_role_at_least(source_property_id, 'manager') OR has_role_at_least(destination_property_id, 'manager'))
-        AND status IN ('pending', 'in_transit')
-    );
-
-CREATE POLICY "Managers can cancel transfers" ON transfer_requests
-    FOR DELETE USING (has_role_at_least(source_property_id, 'manager') AND status = 'pending');
-
--- 7.10 Transfer Items
-CREATE POLICY "Staff can view transfer items" ON transfer_items
-    FOR SELECT USING (
-        EXISTS (SELECT 1 FROM transfer_requests tr WHERE tr.id = transfer_items.transfer_id AND (has_role_at_least(tr.source_property_id, 'staff') OR has_role_at_least(tr.destination_property_id, 'staff')))
-    );
-
-CREATE POLICY "Supervisors can add transfer items" ON transfer_items
-    FOR INSERT WITH CHECK (
-        EXISTS (SELECT 1 FROM transfer_requests tr WHERE tr.id = transfer_items.transfer_id AND has_role_at_least(tr.source_property_id, 'supervisor'))
-    );
-
-CREATE POLICY "Prevent modification of transfer items" ON transfer_items
-    FOR UPDATE USING (false);
-
-CREATE POLICY "Supervisors can remove transfer items" ON transfer_items
-    FOR DELETE USING (
-        EXISTS (SELECT 1 FROM transfer_requests tr WHERE tr.id = transfer_items.transfer_id AND has_role_at_least(tr.source_property_id, 'supervisor') AND tr.status = 'pending')
-    );
-
--- 7.11 Purchase Orders
-CREATE POLICY "Staff can view purchase orders" ON purchase_orders
-    FOR SELECT USING (has_role_at_least(property_id, 'staff'));
-
-CREATE POLICY "Supervisors can create purchase orders" ON purchase_orders
-    FOR INSERT WITH CHECK (has_role_at_least(property_id, 'supervisor'));
-
-CREATE POLICY "Supervisors can update purchase orders" ON purchase_orders
-    FOR UPDATE USING (has_role_at_least(property_id, 'supervisor') AND status = 'pending');
-
-CREATE POLICY "Managers can delete purchase orders" ON purchase_orders
-    FOR DELETE USING (has_role_at_least(property_id, 'manager') AND status = 'pending');
-
--- 7.12 Purchase Order Items
-CREATE POLICY "Staff can view PO items" ON purchase_order_items
-    FOR SELECT USING (
-        EXISTS (SELECT 1 FROM purchase_orders po WHERE po.id = purchase_order_items.order_id AND has_role_at_least(po.property_id, 'staff'))
-    );
-
-CREATE POLICY "Supervisors can add PO items" ON purchase_order_items
-    FOR INSERT WITH CHECK (
-        EXISTS (SELECT 1 FROM purchase_orders po WHERE po.id = purchase_order_items.order_id AND has_role_at_least(po.property_id, 'supervisor'))
-    );
-
-CREATE POLICY "Prevent modification of PO items" ON purchase_order_items
-    FOR UPDATE USING (false);
-
-CREATE POLICY "Supervisors can remove PO items" ON purchase_order_items
-    FOR DELETE USING (
-        EXISTS (SELECT 1 FROM purchase_orders po WHERE po.id = purchase_order_items.order_id AND has_role_at_least(po.property_id, 'supervisor') AND po.status = 'pending')
-    );
-
--- 7.13 Wastage Requests
-CREATE POLICY "Staff can view wastage requests" ON wastage_requests
-    FOR SELECT USING (has_role_at_least(property_id, 'staff'));
-
-CREATE POLICY "Staff can report wastage" ON wastage_requests
-    FOR INSERT WITH CHECK (has_role_at_least(property_id, 'staff'));
-
-CREATE POLICY "Managers can authorize/reject wastage" ON wastage_requests
-    FOR UPDATE USING (has_role_at_least(property_id, 'manager') AND status = 'pending');
-
-CREATE POLICY "Managers can delete wastage requests" ON wastage_requests
-    FOR DELETE USING (has_role_at_least(property_id, 'manager') AND status = 'pending');
-
--- 7.14 Wastage Items
-CREATE POLICY "Staff can view wastage items" ON wastage_items
-    FOR SELECT USING (
-        EXISTS (SELECT 1 FROM wastage_requests wr WHERE wr.id = wastage_items.wastage_id AND has_role_at_least(wr.property_id, 'staff'))
-    );
-
-CREATE POLICY "Staff can add wastage items" ON wastage_items
-    FOR INSERT WITH CHECK (
-        EXISTS (SELECT 1 FROM wastage_requests wr WHERE wr.id = wastage_items.wastage_id AND has_role_at_least(wr.property_id, 'staff'))
-    );
-
-CREATE POLICY "Prevent modification of wastage items" ON wastage_items
-    FOR UPDATE USING (false);
-
-CREATE POLICY "Staff can remove wastage items" ON wastage_items
-    FOR DELETE USING (
-        EXISTS (SELECT 1 FROM wastage_requests wr WHERE wr.id = wastage_items.wastage_id AND has_role_at_least(wr.property_id, 'staff') AND wr.status = 'pending')
-    );
-
--- 7.15 POS Tickets
-CREATE POLICY "Staff can view POS tickets" ON pos_tickets
-    FOR SELECT USING (has_role_at_least(property_id, 'staff'));
-
-CREATE POLICY "System can insert POS tickets" ON pos_tickets
-    FOR INSERT WITH CHECK (true); -- Webhook insertion
-
-CREATE POLICY "Prevent modification of POS tickets" ON pos_tickets
-    FOR UPDATE USING (false);
-
-CREATE POLICY "Prevent deletion of POS tickets" ON pos_tickets
-    FOR DELETE USING (false);
-
--- 7.16 POS Ticket Items
-CREATE POLICY "Staff can view POS ticket items" ON pos_ticket_items
-    FOR SELECT USING (
-        EXISTS (SELECT 1 FROM pos_tickets pt WHERE pt.id = pos_ticket_items.ticket_id AND has_role_at_least(pt.property_id, 'staff'))
-    );
-
-CREATE POLICY "System can insert POS ticket items" ON pos_ticket_items
-    FOR INSERT WITH CHECK (true);
-
-CREATE POLICY "Prevent modification of POS ticket items" ON pos_ticket_items
-    FOR UPDATE USING (false);
-
-CREATE POLICY "Prevent deletion of POS ticket items" ON pos_ticket_items
-    FOR DELETE USING (false);
-
--- 7.17 Audit Logs
-CREATE POLICY "Admins can view audit logs" ON audit_logs
-    FOR SELECT USING (has_role_at_least((SELECT property_id FROM property_memberships WHERE person_id = changed_by LIMIT 1), 'admin'));
-
-CREATE POLICY "No direct inserts to audit logs" ON audit_logs
-    FOR INSERT WITH CHECK (false); -- Only via trigger
-
-CREATE POLICY "No updates to audit logs" ON audit_logs
-    FOR UPDATE USING (false);
-
-CREATE POLICY "No deletes to audit logs" ON audit_logs
-    FOR DELETE USING (false);
+CREATE POLICY "Users can view properties they belong to" ON properties FOR SELECT USING (has_role_at_least(id, 'staff'));
+CREATE POLICY "Managers can insert properties" ON properties FOR INSERT WITH CHECK (has_role_at_least(id, 'manager'));
+CREATE POLICY "Managers can update properties they belong to" ON properties FOR UPDATE USING (has_role_at_least(id, 'manager'));
+CREATE POLICY "Admins can delete properties" ON properties FOR DELETE USING (has_role_at_least(id, 'admin'));
+
+CREATE POLICY "Users can view themselves" ON people FOR SELECT USING (id = (SELECT id FROM people WHERE auth_id = auth.uid()) OR has_role_at_least((SELECT property_id FROM property_memberships WHERE person_id = people.id LIMIT 1), 'manager'));
+CREATE POLICY "Admins can insert people" ON people FOR INSERT WITH CHECK (has_role_at_least((SELECT property_id FROM property_memberships WHERE person_id = people.id LIMIT 1), 'admin'));
+CREATE POLICY "Users can update themselves" ON people FOR UPDATE USING (id = (SELECT id FROM people WHERE auth_id = auth.uid()));
+CREATE POLICY "Admins can delete people" ON people FOR DELETE USING (has_role_at_least((SELECT property_id FROM property_memberships WHERE person_id = people.id LIMIT 1), 'admin'));
+
+CREATE POLICY "Users can view memberships in their properties" ON property_memberships FOR SELECT USING (has_role_at_least(property_id, 'staff'));
+CREATE POLICY "Managers can manage memberships" ON property_memberships FOR INSERT WITH CHECK (has_role_at_least(property_id, 'manager'));
+CREATE POLICY "Managers can update memberships" ON property_memberships FOR UPDATE USING (has_role_at_least(property_id, 'manager'));
+CREATE POLICY "Admins can delete memberships" ON property_memberships FOR DELETE USING (has_role_at_least(property_id, 'admin'));
+
+CREATE POLICY "Everyone can view roles" ON roles FOR SELECT USING (true);
+CREATE POLICY "Admins can modify roles" ON roles FOR INSERT WITH CHECK (has_role_at_least((SELECT property_id FROM property_memberships LIMIT 1), 'admin'));
+CREATE POLICY "Admins can update roles" ON roles FOR UPDATE USING (has_role_at_least((SELECT property_id FROM property_memberships LIMIT 1), 'admin'));
+CREATE POLICY "Admins can delete roles" ON roles FOR DELETE USING (has_role_at_least((SELECT property_id FROM property_memberships LIMIT 1), 'admin'));
+
+CREATE POLICY "Staff can view categories" ON categories FOR SELECT USING (has_role_at_least(property_id, 'staff'));
+CREATE POLICY "Supervisors can insert categories" ON categories FOR INSERT WITH CHECK (has_role_at_least(property_id, 'supervisor'));
+CREATE POLICY "Supervisors can update categories" ON categories FOR UPDATE USING (has_role_at_least(property_id, 'supervisor'));
+CREATE POLICY "Managers can delete categories" ON categories FOR DELETE USING (has_role_at_least(property_id, 'manager'));
+
+CREATE POLICY "Staff can view items" ON items FOR SELECT USING (has_role_at_least(property_id, 'staff'));
+CREATE POLICY "Supervisors can insert items" ON items FOR INSERT WITH CHECK (has_role_at_least(property_id, 'supervisor'));
+CREATE POLICY "Supervisors can update items" ON items FOR UPDATE USING (has_role_at_least(property_id, 'supervisor'));
+CREATE POLICY "Managers can delete items" ON items FOR DELETE USING (has_role_at_least(property_id, 'manager'));
+
+CREATE POLICY "Staff can view stock levels" ON stock_levels FOR SELECT USING (has_role_at_least(property_id, 'staff'));
+CREATE POLICY "System/Triggers insert stock levels" ON stock_levels FOR INSERT WITH CHECK (false);
+CREATE POLICY "System/Triggers update stock levels" ON stock_levels FOR UPDATE USING (true);
+CREATE POLICY "Managers can reset stock levels" ON stock_levels FOR DELETE USING (has_role_at_least(property_id, 'manager'));
+
+CREATE POLICY "Staff can view stock movements" ON stock_movements FOR SELECT USING (has_role_at_least(property_id, 'staff'));
+CREATE POLICY "System/Triggers record movements" ON stock_movements FOR INSERT WITH CHECK (true);
+CREATE POLICY "Prevent modification of movements" ON stock_movements FOR UPDATE USING (false);
+CREATE POLICY "Prevent deletion of movements" ON stock_movements FOR DELETE USING (false);
+
+CREATE POLICY "Staff can view transfers for their properties" ON transfer_requests FOR SELECT USING (has_role_at_least(source_property_id, 'staff') OR has_role_at_least(destination_property_id, 'staff'));
+CREATE POLICY "Supervisors can request transfers" ON transfer_requests FOR INSERT WITH CHECK (has_role_at_least(source_property_id, 'supervisor'));
+CREATE POLICY "Managers can approve transfers" ON transfer_requests FOR UPDATE USING ((has_role_at_least(source_property_id, 'manager') OR has_role_at_least(destination_property_id, 'manager')) AND status IN ('pending', 'in_transit'));
+CREATE POLICY "Managers can cancel transfers" ON transfer_requests FOR DELETE USING (has_role_at_least(source_property_id, 'manager') AND status = 'pending');
+
+CREATE POLICY "Staff can view transfer items" ON transfer_items FOR SELECT USING (EXISTS (SELECT 1 FROM transfer_requests tr WHERE tr.id = transfer_items.transfer_id AND (has_role_at_least(tr.source_property_id, 'staff') OR has_role_at_least(tr.destination_property_id, 'staff'))));
+CREATE POLICY "Supervisors can add transfer items" ON transfer_items FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM transfer_requests tr WHERE tr.id = transfer_items.transfer_id AND has_role_at_least(tr.source_property_id, 'supervisor')));
+CREATE POLICY "Prevent modification of transfer items" ON transfer_items FOR UPDATE USING (false);
+CREATE POLICY "Supervisors can remove transfer items" ON transfer_items FOR DELETE USING (EXISTS (SELECT 1 FROM transfer_requests tr WHERE tr.id = transfer_items.transfer_id AND has_role_at_least(tr.source_property_id, 'supervisor') AND tr.status = 'pending'));
+
+CREATE POLICY "Staff can view purchase orders" ON purchase_orders FOR SELECT USING (has_role_at_least(property_id, 'staff'));
+CREATE POLICY "Supervisors can create purchase orders" ON purchase_orders FOR INSERT WITH CHECK (has_role_at_least(property_id, 'supervisor'));
+CREATE POLICY "Supervisors can update purchase orders" ON purchase_orders FOR UPDATE USING (has_role_at_least(property_id, 'supervisor') AND status = 'pending');
+CREATE POLICY "Managers can delete purchase orders" ON purchase_orders FOR DELETE USING (has_role_at_least(property_id, 'manager') AND status = 'pending');
+
+CREATE POLICY "Staff can view PO items" ON purchase_order_items FOR SELECT USING (EXISTS (SELECT 1 FROM purchase_orders po WHERE po.id = purchase_order_items.order_id AND has_role_at_least(po.property_id, 'staff')));
+CREATE POLICY "Supervisors can add PO items" ON purchase_order_items FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM purchase_orders po WHERE po.id = purchase_order_items.order_id AND has_role_at_least(po.property_id, 'supervisor')));
+CREATE POLICY "Prevent modification of PO items" ON purchase_order_items FOR UPDATE USING (false);
+CREATE POLICY "Supervisors can remove PO items" ON purchase_order_items FOR DELETE USING (EXISTS (SELECT 1 FROM purchase_orders po WHERE po.id = purchase_order_items.order_id AND has_role_at_least(po.property_id, 'supervisor') AND po.status = 'pending'));
+
+CREATE POLICY "Staff can view wastage requests" ON wastage_requests FOR SELECT USING (has_role_at_least(property_id, 'staff'));
+CREATE POLICY "Staff can report wastage" ON wastage_requests FOR INSERT WITH CHECK (has_role_at_least(property_id, 'staff'));
+CREATE POLICY "Managers can authorize/reject wastage" ON wastage_requests FOR UPDATE USING (has_role_at_least(property_id, 'manager') AND status = 'pending');
+CREATE POLICY "Managers can delete wastage requests" ON wastage_requests FOR DELETE USING (has_role_at_least(property_id, 'manager') AND status = 'pending');
+
+CREATE POLICY "Staff can view wastage items" ON wastage_items FOR SELECT USING (EXISTS (SELECT 1 FROM wastage_requests wr WHERE wr.id = wastage_items.wastage_id AND has_role_at_least(wr.property_id, 'staff')));
+CREATE POLICY "Staff can add wastage items" ON wastage_items FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM wastage_requests wr WHERE wr.id = wastage_items.wastage_id AND has_role_at_least(wr.property_id, 'staff')));
+CREATE POLICY "Prevent modification of wastage items" ON wastage_items FOR UPDATE USING (false);
+CREATE POLICY "Staff can remove wastage items" ON wastage_items FOR DELETE USING (EXISTS (SELECT 1 FROM wastage_requests wr WHERE wr.id = wastage_items.wastage_id AND has_role_at_least(wr.property_id, 'staff') AND wr.status = 'pending'));
+
+CREATE POLICY "Staff can view POS tickets" ON pos_tickets FOR SELECT USING (has_role_at_least(property_id, 'staff'));
+CREATE POLICY "System can insert POS tickets" ON pos_tickets FOR INSERT WITH CHECK (true);
+CREATE POLICY "Prevent modification of POS tickets" ON pos_tickets FOR UPDATE USING (false);
+CREATE POLICY "Prevent deletion of POS tickets" ON pos_tickets FOR DELETE USING (false);
+
+CREATE POLICY "Staff can view POS ticket items" ON pos_ticket_items FOR SELECT USING (EXISTS (SELECT 1 FROM pos_tickets pt WHERE pt.id = pos_ticket_items.ticket_id AND has_role_at_least(pt.property_id, 'staff')));
+CREATE POLICY "System can insert POS ticket items" ON pos_ticket_items FOR INSERT WITH CHECK (true);
+CREATE POLICY "Prevent modification of POS ticket items" ON pos_ticket_items FOR UPDATE USING (false);
+CREATE POLICY "Prevent deletion of POS ticket items" ON pos_ticket_items FOR DELETE USING (false);
+
+CREATE POLICY "Admins can view audit logs" ON audit_logs FOR SELECT USING (has_role_at_least((SELECT property_id FROM property_memberships WHERE person_id = changed_by LIMIT 1), 'admin'));
+CREATE POLICY "No direct inserts to audit logs" ON audit_logs FOR INSERT WITH CHECK (false);
+CREATE POLICY "No updates to audit logs" ON audit_logs FOR UPDATE USING (false);
+CREATE POLICY "No deletes to audit logs" ON audit_logs FOR DELETE USING (false);
 
 -- ================================================================
 -- 8. REVOKE DANGEROUS PRIVILEGES
 -- ================================================================
-
--- Revoke direct execute on security definer functions from public
 REVOKE ALL ON FUNCTION update_stock_balance() FROM PUBLIC;
 REVOKE ALL ON FUNCTION process_wastage_authorization() FROM PUBLIC;
 REVOKE ALL ON FUNCTION protect_audit_logs() FROM PUBLIC;
 REVOKE ALL ON FUNCTION log_audit_changes() FROM PUBLIC;
 REVOKE ALL ON FUNCTION get_current_user_role(UUID) FROM PUBLIC;
 REVOKE ALL ON FUNCTION has_role_at_least(UUID, user_role) FROM PUBLIC;
-
--- Grant execute to authenticated users where appropriate (functions check internal logic)
 GRANT EXECUTE ON FUNCTION get_current_user_role(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION has_role_at_least(UUID, user_role) TO authenticated;
