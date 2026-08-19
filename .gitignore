@@ -1,19 +1,28 @@
-```
 # Dependencies
 node_modules/
 
-# Environment
-.env
-.env.local
-.env.*
-
-# Logs
-*.log
-
-# Build artifacts
+# Next.js / build artifacts
+.next/
+out/
 dist/
 build/
 target/
+
+# Environment / secrets
+.env
+.env.local
+.env.*
+!.env.example
+
+# Logs / reports
+*.log
+coverage/
+*.lcov
+gitleaks-report.json
+gitleaks-staged-report.json
+
+# Local tooling
+/tools/
 
 # Python
 __pycache__/
@@ -34,6 +43,6 @@ pip-delete-this-directory.txt
 nosetests.xml
 coverage.xml
 *.cover
-*.log
+
+# Git internals / generated worktree files
 .git/modules/
-```
