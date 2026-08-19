@@ -1,0 +1,9 @@
+
+lib\supabase.ts:1:import { createClient } from '@supabase/supabase-js'
+lib\supabase.ts:3:const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+lib\supabase.ts:4:const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+lib\supabase.ts:6:export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+lib\supabase.ts:8:export const supabaseAdmin = createClient(
+lib\supabase.ts:9:  supabaseUrl,
+lib\supabase.ts:10:  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+

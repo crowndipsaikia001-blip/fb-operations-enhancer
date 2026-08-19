@@ -87,3 +87,43 @@ To change the default port permanently for your shell, set the PORT environment 
 ---
 
 If you want, I added a .env.example and small kill-port helper scripts to `scripts/`. Let me know if you'd like me to instead open a pull request with these changes or place the scripts under a different path.
+
+---
+
+## Repository maintenance helpers (repo_checks and scanning)
+
+This repository includes helper tooling to make local checks and secret scanning easier for contributors.
+
+- repo_checks.ps1 (PowerShell) — run from the repository root to show git status, current branch, remotes, untracked files, suspicious paths (including .gemini/skills), list supabase SQL files if present, top largest tracked/untracked files, list staged files, and (if available) run gitleaks to detect secrets.
+
+- scripts/check_git.ps1 — a smaller repo-root-aware diagnostic script (moved into scripts/) that checks for .env files, supabase SQL files, .gemini/skills and optionally runs local gitleaks if present. Run it with:
+  ```powershell
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check_git.ps1
+  ```
+
+  Usage (Windows PowerShell):
+  ```powershell
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\repo_checks.ps1
+  ```
+
+- Pre-commit hook helper: `.githooks/pre-commit.ps1` is committed in the repository and contains the logic the hook runs. A small worktree-local shim is installed in `.git/hooks` for this worktree so the helper runs on commit. To re-install the local shim for other clones/worktrees, run:
+
+  PowerShell (from repo root):
+  ```powershell
+  mkdir .git\hooks -Force # if missing
+  # create a shim that calls the committed helper (example):
+  # pwsh -NoProfile -Command "& '$PWD\.githooks\pre-commit.ps1'"
+  ```
+
+- GitHub Action `Repo checks` is available (manual dispatch) to run `repo_checks.ps1` on `windows-latest` and upload any gitleaks reports produced.
+
+Security notes
+- `.env.example` contains placeholder values. Do NOT put real service keys in committed files.
+- Server-side GitHub Advanced Security secret scanning requires GHAS to be enabled on the repository/org; otherwise local scanning is used.
+
+If you want, I can:
+- Remove the local gitleaks binary (tools/gitleaks.exe) from the workspace (recommended)
+- Run an additional scanner (truffleHog) and attach its report
+- Add a small README section with one-line commands to install the local pre-commit shim automatically
+
+Tell me which of those you'd like next (or say "Do all" to proceed).

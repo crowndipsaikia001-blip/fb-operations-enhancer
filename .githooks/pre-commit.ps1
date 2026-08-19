@@ -1,0 +1,1 @@
+# Pre-commit hook helper (PowerShell)\n# This helper is not placed directly into .git/hooks to avoid issues with cross-platform hooks\n# The .git/hooks/pre-commit shim calls this file via PowerShell. Ensure .githooks is committed.\n = (git rev-parse --show-toplevel)\n& powershell -NoProfile -ExecutionPolicy Bypass -File \ \\repo_checks.ps1\\nexit 0\n

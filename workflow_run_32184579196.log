@@ -1,0 +1,151 @@
+repo-checks	Set up job	﻿2026-08-18T20:51:23.5027881Z Current runner version: '2.336.0'
+repo-checks	Set up job	2026-08-18T20:51:23.5062725Z ##[group]Runner Image Provisioner
+repo-checks	Set up job	2026-08-18T20:51:23.5063477Z Hosted Compute Agent
+repo-checks	Set up job	2026-08-18T20:51:23.5063890Z Version: 20260729.566
+repo-checks	Set up job	2026-08-18T20:51:23.5064312Z Commit: cf7153fe6e25b664e8693c24944bf2b00355d109
+repo-checks	Set up job	2026-08-18T20:51:23.5064826Z Build Date: 2026-07-29T19:17:02Z
+repo-checks	Set up job	2026-08-18T20:51:23.5065303Z Worker ID: {1d39c78a-4ab4-4984-ad37-542422f7c347}
+repo-checks	Set up job	2026-08-18T20:51:23.5065784Z Azure Region: centralus
+repo-checks	Set up job	2026-08-18T20:51:23.5066213Z ##[endgroup]
+repo-checks	Set up job	2026-08-18T20:51:23.5067107Z ##[group]Operating System
+repo-checks	Set up job	2026-08-18T20:51:23.5067526Z Microsoft Windows Server 2025
+repo-checks	Set up job	2026-08-18T20:51:23.5067961Z 10.0.26100
+repo-checks	Set up job	2026-08-18T20:51:23.5068333Z Datacenter
+repo-checks	Set up job	2026-08-18T20:51:23.5068699Z ##[endgroup]
+repo-checks	Set up job	2026-08-18T20:51:23.5069112Z ##[group]Runner Image
+repo-checks	Set up job	2026-08-18T20:51:23.5069599Z Image: windows-2025-vs2026
+repo-checks	Set up job	2026-08-18T20:51:23.5070428Z Version: 20260810.198.2
+repo-checks	Set up job	2026-08-18T20:51:23.5071277Z Included Software: https://github.com/actions/runner-images/blob/win25-vs2026/20260810.198/images/windows/Windows2025-VS2026-Readme.md
+repo-checks	Set up job	2026-08-18T20:51:23.5072770Z Image Release: https://github.com/actions/runner-images/releases/tag/win25-vs2026%2F20260810.198
+repo-checks	Set up job	2026-08-18T20:51:23.5073439Z ##[endgroup]
+repo-checks	Set up job	2026-08-18T20:51:23.5074316Z ##[group]GITHUB_TOKEN Permissions
+repo-checks	Set up job	2026-08-18T20:51:23.5075950Z Contents: read
+repo-checks	Set up job	2026-08-18T20:51:23.5076360Z Metadata: read
+repo-checks	Set up job	2026-08-18T20:51:23.5076788Z Packages: read
+repo-checks	Set up job	2026-08-18T20:51:23.5077197Z ##[endgroup]
+repo-checks	Set up job	2026-08-18T20:51:23.5078896Z Secret source: Actions
+repo-checks	Set up job	2026-08-18T20:51:23.5079684Z Prepare workflow directory
+repo-checks	Set up job	2026-08-18T20:51:23.5332567Z Prepare all required actions
+repo-checks	Set up job	2026-08-18T20:51:23.5372097Z Getting action download info
+repo-checks	Set up job	2026-08-18T20:51:23.7389265Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+repo-checks	Set up job	2026-08-18T20:51:23.9656974Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+repo-checks	Set up job	2026-08-18T20:51:24.3759620Z Complete job name: repo-checks
+repo-checks	Run actions/checkout@v4	﻿2026-08-18T20:51:24.5120235Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.5127596Z ##[group]Run actions/checkout@v4
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.5128207Z with:
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.5128713Z   repository: crowndipsaikia001-blip/fb-operations-enhancer
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.5132134Z   token: ***
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.5132524Z   ssh-strict: true
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.5132932Z   ssh-user: git
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.5133331Z   persist-credentials: true
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.5133749Z   clean: true
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.5134170Z   sparse-checkout-cone-mode: true
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.5134629Z   fetch-depth: 1
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.5135016Z   fetch-tags: false
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.5135432Z   show-progress: true
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.5136016Z   lfs: false
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.5136567Z   submodules: false
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.5136969Z   set-safe-directory: true
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.5137424Z   allow-unsafe-pr-checkout: false
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.5138093Z ##[endgroup]
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.6367719Z Syncing repository: crowndipsaikia001-blip/fb-operations-enhancer
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.6369361Z ##[group]Getting Git version info
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.6370020Z Working directory is 'D:\a\fb-operations-enhancer\fb-operations-enhancer'
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:24.7052911Z [command]"C:\Program Files\Git\bin\git.exe" version
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:25.8496096Z git version 2.55.0.windows.3
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:25.8533557Z ##[endgroup]
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:25.8552975Z Temporarily overriding HOME='D:\a\_temp\d1219c3c-cc92-4611-b3c7-3077236c9fd4' before making global git config changes
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:25.8554121Z Adding repository directory to the temporary git global config as a safe directory
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:25.8561350Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\fb-operations-enhancer\fb-operations-enhancer
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:25.9148437Z Deleting the contents of 'D:\a\fb-operations-enhancer\fb-operations-enhancer'
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:25.9154253Z ##[group]Initializing the repository
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:25.9161366Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\fb-operations-enhancer\fb-operations-enhancer
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:26.1447556Z Initialized empty Git repository in D:/a/fb-operations-enhancer/fb-operations-enhancer/.git/
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:26.1485398Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/crowndipsaikia001-blip/fb-operations-enhancer
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:26.1934525Z ##[endgroup]
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:26.1935649Z ##[group]Disabling automatic garbage collection
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:26.1940810Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:26.2154223Z ##[endgroup]
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:26.2155561Z ##[group]Setting up auth
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:26.2162708Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:26.2378070Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:31.8018193Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:31.8252268Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:32.2342599Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:32.2555885Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:32.9163233Z [command]"C:\Program Files\Git\bin\git.exe" config --local http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:32.9394929Z ##[endgroup]
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:32.9395851Z ##[group]Fetching the repository
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:32.9404641Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +c47abc1b12871bb12bab333541bd18a5d434b9ab:refs/remotes/origin/main
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:36.2231542Z From https://github.com/crowndipsaikia001-blip/fb-operations-enhancer
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:36.2232567Z  * [new ref]         c47abc1b12871bb12bab333541bd18a5d434b9ab -> origin/main
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:36.2267048Z ##[endgroup]
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:36.2267791Z ##[group]Determining the checkout info
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:36.2268446Z ##[endgroup]
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:36.2278073Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:36.2793459Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:36.3014595Z ##[group]Checking out the ref
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:36.3021596Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force -B main refs/remotes/origin/main
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:36.8724106Z Switched to a new branch 'main'
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:36.9525842Z branch 'main' set up to track 'origin/main'.
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:36.9569703Z ##[endgroup]
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:36.9897176Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+repo-checks	Run actions/checkout@v4	2026-08-18T20:51:37.0089351Z c47abc1b12871bb12bab333541bd18a5d434b9ab
+repo-checks	Run repo checks	﻿2026-08-18T20:51:37.0453434Z ##[group]Run Set-Location $env:GITHUB_WORKSPACE
+repo-checks	Run repo checks	2026-08-18T20:51:37.0454048Z ^[[36;1mSet-Location $env:GITHUB_WORKSPACE^[[0m
+repo-checks	Run repo checks	2026-08-18T20:51:37.0454407Z ^[[36;1mWrite-Host "Running repo_checks.ps1"^[[0m
+repo-checks	Run repo checks	2026-08-18T20:51:37.0454858Z ^[[36;1mpowershell -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\repo_checks.ps1"^[[0m
+repo-checks	Run repo checks	2026-08-18T20:51:37.0455752Z ^[[36;1mWrite-Host "Running scripts/check_git.ps1"^[[0m
+repo-checks	Run repo checks	2026-08-18T20:51:37.0456216Z ^[[36;1mpowershell -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\scripts\check_git.ps1"^[[0m
+repo-checks	Run repo checks	2026-08-18T20:51:37.0456678Z ^[[36;1m# If gitleaks binary is present on the runner, run it^[[0m
+repo-checks	Run repo checks	2026-08-18T20:51:37.0457078Z ^[[36;1mif (Test-Path "$env:GITHUB_WORKSPACE\tools\gitleaks.exe") {^[[0m
+repo-checks	Run repo checks	2026-08-18T20:51:37.0457490Z ^[[36;1m  Write-Host "Running gitleaks on workflow runner"^[[0m
+repo-checks	Run repo checks	2026-08-18T20:51:37.0458022Z ^[[36;1m  & "$env:GITHUB_WORKSPACE\tools\gitleaks.exe" detect --source "$env:GITHUB_WORKSPACE" --report-path "$env:GITHUB_WORKSPACE\gitleaks-report.json" || true^[[0m
+repo-checks	Run repo checks	2026-08-18T20:51:37.0458643Z ^[[36;1m} else {^[[0m
+repo-checks	Run repo checks	2026-08-18T20:51:37.0458899Z ^[[36;1m  Write-Host "gitleaks not present on runner, skipping"^[[0m
+repo-checks	Run repo checks	2026-08-18T20:51:37.0459272Z ^[[36;1m}^[[0m
+repo-checks	Run repo checks	2026-08-18T20:51:37.5699816Z shell: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.EXE -command ". '{0}'"
+repo-checks	Run repo checks	2026-08-18T20:51:37.5700253Z ##[endgroup]
+repo-checks	Run repo checks	2026-08-18T20:51:47.0925940Z At D:\a\_temp\7a9af60f-c17c-4da5-ac26-048a1fe81cab.ps1:10 char:147
+repo-checks	Run repo checks	2026-08-18T20:51:47.0927244Z + ... E" --report-path "$env:GITHUB_WORKSPACE\gitleaks-report.json" || true
+repo-checks	Run repo checks	2026-08-18T20:51:47.0927909Z +                                                                   ~~
+repo-checks	Run repo checks	2026-08-18T20:51:47.0928366Z The token '||' is not a valid statement separator in this version.
+repo-checks	Run repo checks	2026-08-18T20:51:47.0928966Z     + CategoryInfo          : ParserError: (:) [], ParseException
+repo-checks	Run repo checks	2026-08-18T20:51:47.0929463Z     + FullyQualifiedErrorId : InvalidEndOfLine
+repo-checks	Run repo checks	2026-08-18T20:51:47.0929889Z  
+repo-checks	Run repo checks	2026-08-18T20:51:47.1527496Z ##[error]Process completed with exit code 1.
+repo-checks	Upload gitleaks report if present	﻿2026-08-18T20:51:47.1816809Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+repo-checks	Upload gitleaks report if present	2026-08-18T20:51:47.1819022Z ##[group]Run actions/upload-artifact@v4
+repo-checks	Upload gitleaks report if present	2026-08-18T20:51:47.1819347Z with:
+repo-checks	Upload gitleaks report if present	2026-08-18T20:51:47.1819601Z   name: gitleaks-reports
+repo-checks	Upload gitleaks report if present	2026-08-18T20:51:47.1820297Z   path: gitleaks-staged-report.json
+repo-checks	Upload gitleaks report if present	gitleaks-report.json
+repo-checks	Upload gitleaks report if present	
+repo-checks	Upload gitleaks report if present	2026-08-18T20:51:47.1820706Z   if-no-files-found: warn
+repo-checks	Upload gitleaks report if present	2026-08-18T20:51:47.1820976Z   compression-level: 6
+repo-checks	Upload gitleaks report if present	2026-08-18T20:51:47.1821592Z   overwrite: false
+repo-checks	Upload gitleaks report if present	2026-08-18T20:51:47.1821861Z   include-hidden-files: false
+repo-checks	Upload gitleaks report if present	2026-08-18T20:51:47.1822122Z ##[endgroup]
+repo-checks	Upload gitleaks report if present	2026-08-18T20:51:47.3443127Z (node:7864) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+repo-checks	Upload gitleaks report if present	2026-08-18T20:51:47.3443724Z (Use `node --trace-deprecation ...` to show where the warning was created)
+repo-checks	Upload gitleaks report if present	2026-08-18T20:51:47.3481916Z Multiple search paths detected. Calculating the least common ancestor of all paths
+repo-checks	Upload gitleaks report if present	2026-08-18T20:51:47.3483649Z The least common ancestor is D:\a\fb-operations-enhancer\fb-operations-enhancer. This will be the root directory of the artifact
+repo-checks	Upload gitleaks report if present	2026-08-18T20:51:47.3496725Z ##[warning]No files were found with the provided path: gitleaks-staged-report.json
+repo-checks	Upload gitleaks report if present	gitleaks-report.json. No artifacts will be uploaded.
+repo-checks	Post Run actions/checkout@v4	﻿2026-08-18T20:51:47.3777531Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+repo-checks	Post Run actions/checkout@v4	2026-08-18T20:51:47.3778598Z Post job cleanup.
+repo-checks	Post Run actions/checkout@v4	2026-08-18T20:51:47.5181400Z [command]"C:\Program Files\Git\bin\git.exe" version
+repo-checks	Post Run actions/checkout@v4	2026-08-18T20:51:47.5386924Z git version 2.55.0.windows.3
+repo-checks	Post Run actions/checkout@v4	2026-08-18T20:51:47.5437286Z Temporarily overriding HOME='D:\a\_temp\94503596-2cd2-40a4-964a-a2644acb855d' before making global git config changes
+repo-checks	Post Run actions/checkout@v4	2026-08-18T20:51:47.5437901Z Adding repository directory to the temporary git global config as a safe directory
+repo-checks	Post Run actions/checkout@v4	2026-08-18T20:51:47.5445986Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\fb-operations-enhancer\fb-operations-enhancer
+repo-checks	Post Run actions/checkout@v4	2026-08-18T20:51:47.5668094Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+repo-checks	Post Run actions/checkout@v4	2026-08-18T20:51:47.5889434Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+repo-checks	Post Run actions/checkout@v4	2026-08-18T20:51:48.0454394Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+repo-checks	Post Run actions/checkout@v4	2026-08-18T20:51:48.0640623Z http.https://github.com/.extraheader
+repo-checks	Post Run actions/checkout@v4	2026-08-18T20:51:48.0672956Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all http.https://github.com/.extraheader
+repo-checks	Post Run actions/checkout@v4	2026-08-18T20:51:48.0886493Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+repo-checks	Post Run actions/checkout@v4	2026-08-18T20:51:48.4883381Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+repo-checks	Post Run actions/checkout@v4	2026-08-18T20:51:48.5099451Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+repo-checks	Complete job	﻿2026-08-18T20:51:48.9331689Z Cleaning up orphan processes
+repo-checks	Complete job	2026-08-18T20:51:48.9367130Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
