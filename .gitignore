@@ -1,48 +1,50 @@
 ```
-# Environment variables
-.env
-.env.local
-*.env.*
-
-# Dependency directories
-node_modules/
-venv/
-.venv/
-__pycache__/
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.coverage
-coverage/
-htmlcov/
-
-# Build artifacts
-dist/
-build/
-target/
+# Compiled and build artifacts
 *.pyc
-*.class
+__pycache__/
 *.o
 *.obj
+*.class
 *.exe
 *.dll
 *.so
 *.a
 *.out
 
-# Logs and temporary files
+# Dependencies
+.venv/
+venv/
+node_modules/
+.mypy_cache/
+.pytest_cache/
+dist/
+build/
+target/
+.gradle/
+
+# Logs and temp files
 *.log
 *.tmp
 *.swp
 *.swo
 
-# OS generated files
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+
+# System files
 .DS_Store
 Thumbs.db
 
-# IDE specific
-.vscode/
-.idea/
+# Coverage
+coverage/
+htmlcov/
+.coverage
 
 # Compressed files
 *.zip
@@ -63,11 +65,8 @@ Thumbs.db
 *.Z
 *.lz
 *.lzo
-
-# Project specific - gemini/skills related cache/config
-.gemini/antigravity/
-.gemini/skills/
-
-# Original rules preserved
-*.log
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
 ```
