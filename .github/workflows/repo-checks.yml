@@ -1,58 +1,36 @@
 name: Repo checks
 
 on:
-  workflow_dispatch: {}
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
   repo-checks:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Install gitleaks (Windows)
-        if: runner.os == 'Windows'
-        continue-on-error: true
-        shell: powershell
-        run: |
-          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-          $url = 'https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30_1_windows_x64.zip'
-          $zip = Join-Path $env:TEMP 'gitleaks_win.zip'
-          Write-Host "Downloading gitleaks from $url to $zip"
-          try {
-            Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing -ErrorAction Stop
-            $dest = Join-Path $env:GITHUB_WORKSPACE 'tools'
-            New-Item -ItemType Directory -Path $dest -Force | Out-Null
-            Expand-Archive -Path $zip -DestinationPath $dest -Force
-            $exe = Get-ChildItem -Path $dest -Filter 'gitleaks*.exe' -Recurse | Select-Object -First 1
-            if ($exe) { Copy-Item $exe.FullName (Join-Path $dest 'gitleaks.exe') -Force; Write-Host 'gitleaks installed' } else { Write-Host 'gitleaks not found in archive' }
-          } catch {
-            Write-Host "gitleaks download or install failed: $($_.Exception.Message)" -ForegroundColor Yellow
-            Write-Host "Skipping gitleaks installation on Windows runner"
-          }
-      - name: Run repo_checks.ps1
-        shell: pwsh
-        run: pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\repo_checks.ps1"
-      - name: Run scripts/check_git.ps1
-        shell: pwsh
-        run: pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\scripts\check_git.ps1"
-      - name: Run gitleaks (if present)
-        shell: pwsh
-        run: |
-          $gitleaksPath = Join-Path $env:GITHUB_WORKSPACE 'tools\\gitleaks.exe'
-          if (Test-Path $gitleaksPath) {
-            Write-Host "Running gitleaks on workflow runner"
-            try {
-              & $gitleaksPath detect --source $env:GITHUB_WORKSPACE --report-path (Join-Path $env:GITHUB_WORKSPACE 'gitleaks-report.json')
-            } catch {
-              Write-Host "gitleaks failed: $($_.Exception.Message)"
-            }
-          } else {
-            Write-Host "gitleaks not present on runner, skipping"
-          }
-      - name: Upload gitleaks report if present
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          name: gitleaks-reports
-          path: |
-            gitleaks-staged-report.json
-            gitleaks-report.json
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
