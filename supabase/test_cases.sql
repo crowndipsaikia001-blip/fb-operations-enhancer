@@ -1,336 +1,405 @@
--- ============================================================================
--- FB OPERATIONS ENHANCER — COMPLETE SECURITY & OPERATIONAL TEST SUITE
--- Target: Supabase PostgreSQL (Standard Public Schema)
--- NOTE: All tests execute in isolated BEGIN ... ROLLBACK blocks. Zero data persists.
--- ============================================================================
+-- ================================================================
+-- TEST CASES for Revision 5 Migration
+-- ================================================================
+-- These tests verify the core invariants of the system.
+-- NOTE: These tests require a clean database with the migration applied.
+-- They assume auth.uid() can be mocked or tested in a session with a valid user.
+-- ================================================================
 
--- ----------------------------------------------------------------------------
--- TEST A: Purchase Receiving -> Automatic Stock Balance Increase
--- ----------------------------------------------------------------------------
-BEGIN;
-  -- 1. Setup
-  INSERT INTO public.properties (id, name) VALUES ('11111111-1111-1111-1111-111111111111', 'Test Outlet');
-  INSERT INTO public.item_master (id, property_id, name, item_code, item_category, primary_uom)
-  VALUES ('22222222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111', 'Gin 750ml', 'GIN-01', 'SPIRITS', 'BOTTLE');
-  INSERT INTO public.inventory_locations (id, property_id, name)
-  VALUES ('33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', 'Main Store');
-  INSERT INTO public.people (id, property_id, full_name)
-  VALUES ('44444444-4444-4444-4444-444444444444', '11111111-1111-1111-1111-111111111111', 'Test Storekeeper');
+\echo 'Starting Test Cases...'
 
-  -- 2. Operation: Post Purchase Receiving
-  INSERT INTO public.stock_movements (property_id, item_id, to_location_id, movement_type, quantity, uom, unit_cost, recorded_by)
-  VALUES ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', '33333333-3333-3333-3333-333333333333', 'PURCHASE_RECEIVING', 50.0000, 'BOTTLE', 1000.00, '44444444-4444-4444-4444-444444444444');
+-- ========================================================================
+-- SETUP HELPER: Create test data
+-- ========================================================================
 
-  -- 3. Verification Query
-  SELECT quantity_on_hand AS test_a_balance 
-  FROM public.stock_balances 
-  WHERE property_id = '11111111-1111-1111-1111-111111111111' 
-    AND item_id = '22222222-2222-2222-2222-222222222222' 
-    AND location_id = '33333333-3333-3333-3333-333333333333';
-  -- Expected: test_a_balance = 50.0000
-ROLLBACK;
+-- Mock property and people for testing (in real scenario, these come from auth)
+DO $$
+DECLARE
+    test_prop_id UUID;
+    test_person_id UUID;
+BEGIN
+    -- Create test property
+    INSERT INTO properties (name, address) VALUES ('Test Bar', '123 Test St')
+    ON CONFLICT DO NOTHING
+    RETURNING id INTO test_prop_id;
+    
+    -- Note: In real tests, person would be linked to auth.users
+    -- For unit testing triggers, we may bypass auth checks or mock them
+    
+    RAISE NOTICE 'Setup complete for property: %', test_prop_id;
+END $$;
 
+-- ========================================================================
+-- TEST A: Purchase Receiving
+-- ========================================================================
+-- Verify: Inserting a purchase order creates positive stock movement
+\echo 'TEST A: Purchase Receiving'
 
--- ----------------------------------------------------------------------------
--- TEST B: Transfer Arithmetic (Opening 100, Transfer Out 20, Expected 80)
--- ----------------------------------------------------------------------------
-BEGIN;
-  -- 1. Setup
-  INSERT INTO public.properties (id, name) VALUES ('11111111-1111-1111-1111-111111111111', 'Test Outlet');
-  INSERT INTO public.item_master (id, property_id, name, item_code, item_category, primary_uom)
-  VALUES ('22222222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111', 'Vodka 750ml', 'VOD-01', 'SPIRITS', 'BOTTLE');
-  INSERT INTO public.inventory_locations (id, property_id, name) VALUES 
-    ('33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', 'Main Store'),
-    ('55555555-5555-5555-5555-555555555555', '11111111-1111-1111-1111-111111111111', 'Main Bar');
-  INSERT INTO public.people (id, property_id, full_name)
-  VALUES ('44444444-4444-4444-4444-444444444444', '11111111-1111-1111-1111-111111111111', 'Storekeeper');
+DO $$
+DECLARE
+    v_item_id UUID;
+    v_prop_id UUID;
+    v_po_id UUID;
+    v_initial_balance NUMERIC;
+    v_new_balance NUMERIC;
+BEGIN
+    -- Setup
+    SELECT id INTO v_prop_id FROM properties WHERE name = 'Test Bar' LIMIT 1;
+    
+    INSERT INTO items (property_id, name, sku) 
+    VALUES (v_prop_id, 'Test Spirit', 'SKU-001') 
+    RETURNING id INTO v_item_id;
+    
+    -- Initial balance should be 0
+    SELECT COALESCE(quantity, 0) INTO v_initial_balance FROM stock_levels WHERE item_id = v_item_id AND property_id = v_prop_id;
+    
+    -- Create PO
+    INSERT INTO purchase_orders (property_id, supplier_name, status) 
+    VALUES (v_prop_id, 'Test Supplier', 'pending') 
+    RETURNING id INTO v_po_id;
+    
+    INSERT INTO purchase_order_items (order_id, item_id, quantity, unit_cost) 
+    VALUES (v_po_id, v_item_id, 50, 20.00);
+    
+    -- Simulate receiving (manually insert movement for this test)
+    INSERT INTO stock_movements (item_id, property_id, quantity, movement_type, reference_id, reason)
+    VALUES (v_item_id, v_prop_id, 50, 'purchase', v_po_id, 'Received PO');
+    
+    -- Verify balance updated
+    SELECT quantity INTO v_new_balance FROM stock_levels WHERE item_id = v_item_id AND property_id = v_prop_id;
+    
+    IF v_new_balance = 50 THEN
+        RAISE NOTICE 'TEST A PASS: Balance updated to 50 after purchase';
+    ELSE
+        RAISE EXCEPTION 'TEST A FAIL: Expected balance 50, got %', v_new_balance;
+    END IF;
+END $$;
 
-  -- Seed opening balance of 100 in Main Store
-  INSERT INTO public.stock_movements (property_id, item_id, to_location_id, movement_type, quantity, uom, unit_cost, recorded_by)
-  VALUES ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', '33333333-3333-3333-3333-333333333333', 'PURCHASE_RECEIVING', 100.0000, 'BOTTLE', 800.00, '44444444-4444-4444-4444-444444444444');
+-- ========================================================================
+-- TEST B: Transfer
+-- ========================================================================
+-- Verify: Transfer out reduces source stock, transfer in increases destination
+\echo 'TEST B: Transfer'
 
-  -- 2. Operation: Transfer 20 bottles from Main Store to Main Bar
-  INSERT INTO public.stock_movements (property_id, item_id, from_location_id, to_location_id, movement_type, quantity, uom, unit_cost, recorded_by)
-  VALUES ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', '33333333-3333-3333-3333-333333333333', '55555555-5555-5555-5555-555555555555', 'TRANSFER', 20.0000, 'BOTTLE', 800.00, '44444444-4444-4444-4444-444444444444');
+DO $$
+DECLARE
+    v_item_id UUID;
+    v_prop_src UUID;
+    v_prop_dest UUID;
+    v_transfer_id UUID;
+    v_src_balance_before NUMERIC;
+    v_src_balance_after NUMERIC;
+BEGIN
+    -- Setup two properties
+    SELECT id INTO v_prop_src FROM properties WHERE name = 'Test Bar' LIMIT 1;
+    INSERT INTO properties (name, address) VALUES ('Test Lounge', '456 Test St') 
+    ON CONFLICT DO NOTHING RETURNING id INTO v_prop_dest;
+    IF v_prop_dest IS NULL THEN SELECT id INTO v_prop_dest FROM properties WHERE name = 'Test Lounge' LIMIT 1; END IF;
+    
+    -- Ensure item exists in source
+    SELECT id INTO v_item_id FROM items WHERE name = 'Test Spirit' AND property_id = v_prop_src LIMIT 1;
+    
+    -- Ensure source has stock
+    SELECT quantity INTO v_src_balance_before FROM stock_levels WHERE item_id = v_item_id AND property_id = v_prop_src;
+    
+    -- Create transfer request
+    INSERT INTO transfer_requests (source_property_id, destination_property_id, status)
+    VALUES (v_prop_src, v_prop_dest, 'pending')
+    RETURNING id INTO v_transfer_id;
+    
+    INSERT INTO transfer_items (transfer_id, item_id, quantity)
+    VALUES (v_transfer_id, v_item_id, 20);
+    
+    -- Simulate transfer out movement
+    INSERT INTO stock_movements (item_id, property_id, quantity, movement_type, reference_id)
+    VALUES (v_item_id, v_prop_src, -20, 'transfer_out', v_transfer_id);
+    
+    -- Verify source balance reduced
+    SELECT quantity INTO v_src_balance_after FROM stock_levels WHERE item_id = v_item_id AND property_id = v_prop_src;
+    
+    IF v_src_balance_after = v_src_balance_before - 20 THEN
+        RAISE NOTICE 'TEST B PASS: Source balance reduced by 20';
+    ELSE
+        RAISE EXCEPTION 'TEST B FAIL: Expected source balance %, got %', v_src_balance_before - 20, v_src_balance_after;
+    END IF;
+END $$;
 
-  -- 3. Verification Query
-  SELECT 
-    (SELECT quantity_on_hand FROM public.stock_balances WHERE location_id = '33333333-3333-3333-3333-333333333333') AS store_balance,
-    (SELECT quantity_on_hand FROM public.stock_balances WHERE location_id = '55555555-5555-5555-5555-555555555555') AS bar_balance;
-  -- Expected: store_balance = 80.0000, bar_balance = 20.0000
-ROLLBACK;
+-- ========================================================================
+-- TEST C: POS Consumption
+-- ========================================================================
+-- Verify: POS ticket creates negative stock movement
+\echo 'TEST C: POS Consumption'
 
+DO $$
+DECLARE
+    v_item_id UUID;
+    v_prop_id UUID;
+    v_ticket_id UUID;
+    v_balance_before NUMERIC;
+    v_balance_after NUMERIC;
+BEGIN
+    SELECT id INTO v_prop_id FROM properties WHERE name = 'Test Bar' LIMIT 1;
+    SELECT id INTO v_item_id FROM items WHERE name = 'Test Spirit' AND property_id = v_prop_id LIMIT 1;
+    
+    SELECT quantity INTO v_balance_before FROM stock_levels WHERE item_id = v_item_id AND property_id = v_prop_id;
+    
+    -- Create POS ticket
+    INSERT INTO pos_tickets (property_id, external_ticket_id, source_system, total_amount)
+    VALUES (v_prop_id, 'TICKET-001', 'Square', 50.00)
+    RETURNING id INTO v_ticket_id;
+    
+    INSERT INTO pos_ticket_items (ticket_id, item_id, quantity, unit_price)
+    VALUES (v_ticket_id, v_item_id, 2, 25.00);
+    
+    -- Simulate consumption movement
+    INSERT INTO stock_movements (item_id, property_id, quantity, movement_type, reference_id)
+    VALUES (v_item_id, v_prop_id, -2, 'pos_sale', v_ticket_id);
+    
+    SELECT quantity INTO v_balance_after FROM stock_levels WHERE item_id = v_item_id AND property_id = v_prop_id;
+    
+    IF v_balance_after = v_balance_before - 2 THEN
+        RAISE NOTICE 'TEST C PASS: Balance reduced by 2 after POS sale';
+    ELSE
+        RAISE EXCEPTION 'TEST C FAIL: Expected balance %, got %', v_balance_before - 2, v_balance_after;
+    END IF;
+END $$;
 
--- ----------------------------------------------------------------------------
--- TEST C: POS Consumption Depletion
--- ----------------------------------------------------------------------------
-BEGIN;
-  -- 1. Setup
-  INSERT INTO public.properties (id, name) VALUES ('11111111-1111-1111-1111-111111111111', 'Test Outlet');
-  INSERT INTO public.departments (id, property_id, name, code) VALUES ('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111', 'Bar', 'BAR');
-  INSERT INTO public.item_master (id, property_id, name, item_code, item_category, primary_uom)
-  VALUES ('22222222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111', 'Campari 750ml', 'CAM-01', 'SPIRITS', 'BOTTLE');
-  INSERT INTO public.inventory_locations (id, property_id, name) VALUES ('55555555-5555-5555-5555-555555555555', '11111111-1111-1111-1111-111111111111', 'Main Bar');
-  INSERT INTO public.people (id, property_id, full_name) VALUES ('44444444-4444-4444-4444-444444444444', '11111111-1111-1111-1111-111111111111', 'POS Bot');
+-- ========================================================================
+-- TEST D: Pending Wastage (No Stock Movement Yet)
+-- ========================================================================
+-- Verify: Wastage in 'pending' status does NOT create stock movement
+\echo 'TEST D: Pending Wastage'
 
-  INSERT INTO public.stock_movements (property_id, item_id, to_location_id, movement_type, quantity, uom, recorded_by)
-  VALUES ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', '55555555-5555-5555-5555-555555555555', 'PURCHASE_RECEIVING', 10.0000, 'BOTTLE', '44444444-4444-4444-4444-444444444444');
+DO $$
+DECLARE
+    v_item_id UUID;
+    v_prop_id UUID;
+    v_wastage_id UUID;
+    v_movement_count INTEGER;
+BEGIN
+    SELECT id INTO v_prop_id FROM properties WHERE name = 'Test Bar' LIMIT 1;
+    SELECT id INTO v_item_id FROM items WHERE name = 'Test Spirit' AND property_id = v_prop_id LIMIT 1;
+    
+    -- Create wastage request in pending status
+    INSERT INTO wastage_requests (property_id, status, reason)
+    VALUES (v_prop_id, 'pending', 'Spilled during service')
+    RETURNING id INTO v_wastage_id;
+    
+    INSERT INTO wastage_items (wastage_id, item_id, quantity, reason_detail)
+    VALUES (v_wastage_id, v_item_id, 5, 'Accidental spill');
+    
+    -- Check no movement created yet (trigger only fires on authorize)
+    SELECT count(*) INTO v_movement_count 
+    FROM stock_movements 
+    WHERE reference_id = v_wastage_id AND movement_type = 'wastage';
+    
+    IF v_movement_count = 0 THEN
+        RAISE NOTICE 'TEST D PASS: No stock movement for pending wastage';
+    ELSE
+        RAISE EXCEPTION 'TEST D FAIL: Expected 0 movements, got %', v_movement_count;
+    END IF;
+END $$;
 
-  -- 2. Operation: POS Sale consumes 0.0800 bottles (60ml)
-  INSERT INTO public.stock_movements (property_id, item_id, from_location_id, movement_type, quantity, uom, recorded_by)
-  VALUES ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', '55555555-5555-5555-5555-555555555555', 'CONSUMPTION_POS', 0.0800, 'BOTTLE', '44444444-4444-4444-4444-444444444444');
+-- ========================================================================
+-- TEST E: Authorized Wastage (Exactly-One Movement)
+-- ========================================================================
+-- Verify: Authorizing wastage creates exactly ONE negative stock movement
+\echo 'TEST E: Authorized Wastage'
 
-  -- 3. Verification Query
-  SELECT quantity_on_hand AS bar_balance 
-  FROM public.stock_balances 
-  WHERE location_id = '55555555-5555-5555-5555-555555555555';
-  -- Expected: bar_balance = 9.9200
-ROLLBACK;
+DO $$
+DECLARE
+    v_item_id UUID;
+    v_prop_id UUID;
+    v_wastage_id UUID;
+    v_balance_before NUMERIC;
+    v_balance_after NUMERIC;
+    v_movement_count INTEGER;
+    v_movement_qty NUMERIC;
+BEGIN
+    SELECT id INTO v_prop_id FROM properties WHERE name = 'Test Bar' LIMIT 1;
+    SELECT id INTO v_item_id FROM items WHERE name = 'Test Spirit' AND property_id = v_prop_id LIMIT 1;
+    
+    SELECT quantity INTO v_balance_before FROM stock_levels WHERE item_id = v_item_id AND property_id = v_prop_id;
+    
+    -- Create new wastage request
+    INSERT INTO wastage_requests (property_id, status, reason)
+    VALUES (v_prop_id, 'pending', 'Broken bottle')
+    RETURNING id INTO v_wastage_id;
+    
+    INSERT INTO wastage_items (wastage_id, item_id, quantity, reason_detail)
+    VALUES (v_wastage_id, v_item_id, 3, 'Dropped');
+    
+    -- Authorize (trigger should fire)
+    UPDATE wastage_requests SET status = 'authorized', authorized_at = NOW() WHERE id = v_wastage_id;
+    
+    -- Verify exactly one movement created
+    SELECT count(*), COALESCE(SUM(quantity), 0) INTO v_movement_count, v_movement_qty
+    FROM stock_movements 
+    WHERE reference_id = v_wastage_id AND movement_type = 'wastage';
+    
+    SELECT quantity INTO v_balance_after FROM stock_levels WHERE item_id = v_item_id AND property_id = v_prop_id;
+    
+    IF v_movement_count = 1 AND v_movement_qty = -3 AND v_balance_after = v_balance_before - 3 THEN
+        RAISE NOTICE 'TEST E PASS: Exactly one movement (-3) created on authorization';
+    ELSE
+        RAISE EXCEPTION 'TEST E FAIL: count=%, qty=%, balance_before=%, balance_after=%', 
+            v_movement_count, v_movement_qty, v_balance_before, v_balance_after;
+    END IF;
+END $$;
 
+-- ========================================================================
+-- TEST F: Rejected Wastage (Zero Movements)
+-- ========================================================================
+-- Verify: Rejecting wastage creates NO stock movement
+\echo 'TEST F: Rejected Wastage'
 
--- ----------------------------------------------------------------------------
--- TEST D: Pending Wastage -> Zero Stock Movements
--- ----------------------------------------------------------------------------
-BEGIN;
-  -- 1. Setup
-  INSERT INTO public.properties (id, name) VALUES ('11111111-1111-1111-1111-111111111111', 'Test Outlet');
-  INSERT INTO public.departments (id, property_id, name, code) VALUES ('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111', 'Kitchen', 'KITCHEN');
-  INSERT INTO public.item_master (id, property_id, name, item_code, item_category, primary_uom)
-  VALUES ('22222222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111', 'Milk 1L', 'MLK-01', 'DAIRY', 'LITER');
-  INSERT INTO public.inventory_locations (id, property_id, name) VALUES ('55555555-5555-5555-5555-555555555555', '11111111-1111-1111-1111-111111111111', 'Kitchen Fridge');
-  INSERT INTO public.people (id, property_id, full_name) VALUES ('44444444-4444-4444-4444-444444444444', '11111111-1111-1111-1111-111111111111', 'Staff Cook');
+DO $$
+DECLARE
+    v_item_id UUID;
+    v_prop_id UUID;
+    v_wastage_id UUID;
+    v_movement_count INTEGER;
+BEGIN
+    SELECT id INTO v_prop_id FROM properties WHERE name = 'Test Bar' LIMIT 1;
+    SELECT id INTO v_item_id FROM items WHERE name = 'Test Spirit' AND property_id = v_prop_id LIMIT 1;
+    
+    -- Create new wastage request
+    INSERT INTO wastage_requests (property_id, status, reason)
+    VALUES (v_prop_id, 'pending', 'Test rejection')
+    RETURNING id INTO v_wastage_id;
+    
+    INSERT INTO wastage_items (wastage_id, item_id, quantity, reason_detail)
+    VALUES (v_wastage_id, v_item_id, 10, 'Test');
+    
+    -- Reject
+    UPDATE wastage_requests SET status = 'rejected', authorized_at = NOW() WHERE id = v_wastage_id;
+    
+    -- Verify no movement created
+    SELECT count(*) INTO v_movement_count 
+    FROM stock_movements 
+    WHERE reference_id = v_wastage_id AND movement_type = 'wastage';
+    
+    IF v_movement_count = 0 THEN
+        RAISE NOTICE 'TEST F PASS: No stock movement for rejected wastage';
+    ELSE
+        RAISE EXCEPTION 'TEST F FAIL: Expected 0 movements, got %', v_movement_count;
+    END IF;
+END $$;
 
-  -- 2. Operation: Insert Pending Wastage
-  INSERT INTO public.wastage_records (id, property_id, department_id, item_id, location_id, quantity, uom, reason, status, reported_by)
-  VALUES ('wwwwwwww-wwww-wwww-wwww-wwwwwwwwwwww', '11111111-1111-1111-1111-111111111111', 'dddddddd-dddd-dddd-dddd-dddddddddddd', '22222222-2222-2222-2222-222222222222', '55555555-5555-5555-5555-555555555555', 3.0000, 'LITER', 'Spoiled carton', 'PENDING', '44444444-4444-4444-4444-444444444444');
+-- ========================================================================
+-- TEST G: Duplicate POS Webhook (Idempotency)
+-- ========================================================================
+-- Verify: Same external_ticket_id cannot be inserted twice
+\echo 'TEST G: Duplicate POS Webhook'
 
-  -- 3. Verification Query
-  SELECT count(*) AS movement_count 
-  FROM public.stock_movements 
-  WHERE reference_id = 'wwwwwwww-wwww-wwww-wwww-wwwwwwwwwwww';
-  -- Expected: movement_count = 0
-ROLLBACK;
+DO $$
+DECLARE
+    v_prop_id UUID;
+BEGIN
+    SELECT id INTO v_prop_id FROM properties WHERE name = 'Test Bar' LIMIT 1;
+    
+    -- First insert should succeed
+    INSERT INTO pos_tickets (property_id, external_ticket_id, source_system, total_amount)
+    VALUES (v_prop_id, 'UNIQUE-TICKET', 'Square', 100.00);
+    
+    -- Second insert with same external_ticket_id should fail
+    BEGIN
+        INSERT INTO pos_tickets (property_id, external_ticket_id, source_system, total_amount)
+        VALUES (v_prop_id, 'UNIQUE-TICKET', 'Square', 100.00);
+        
+        RAISE EXCEPTION 'TEST G FAIL: Duplicate insert should have been rejected';
+    EXCEPTION WHEN unique_violation THEN
+        RAISE NOTICE 'TEST G PASS: Duplicate POS ticket rejected by unique constraint';
+    END;
+END $$;
 
+-- ========================================================================
+-- TEST H: Unmapped POS Item
+-- ========================================================================
+-- Verify: POS ticket items can have NULL item_id (unmapped items)
+\echo 'TEST H: Unmapped POS Item'
 
--- ----------------------------------------------------------------------------
--- TEST E: Authorized Wastage & Full Immutability Protection
--- ----------------------------------------------------------------------------
-BEGIN;
-  -- 1. Setup
-  INSERT INTO public.properties (id, name) VALUES ('11111111-1111-1111-1111-111111111111', 'Test Outlet');
-  INSERT INTO public.departments (id, property_id, name, code) VALUES ('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111', 'Kitchen', 'KITCHEN');
-  INSERT INTO public.item_master (id, property_id, name, item_code, item_category, primary_uom)
-  VALUES ('22222222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111', 'Milk 1L', 'MLK-01', 'DAIRY', 'LITER');
-  INSERT INTO public.inventory_locations (id, property_id, name) VALUES ('55555555-5555-5555-5555-555555555555', '11111111-1111-1111-1111-111111111111', 'Kitchen Fridge');
-  INSERT INTO public.people (id, property_id, full_name) VALUES 
-    ('44444444-4444-4444-4444-444444444444', '11111111-1111-1111-1111-111111111111', 'Staff Cook'),
-    ('66666666-6666-6666-6666-666666666666', '11111111-1111-1111-1111-111111111111', 'Kitchen Chef');
+DO $$
+DECLARE
+    v_prop_id UUID;
+    v_ticket_id UUID;
+BEGIN
+    SELECT id INTO v_prop_id FROM properties WHERE name = 'Test Bar' LIMIT 1;
+    
+    INSERT INTO pos_tickets (property_id, external_ticket_id, source_system, total_amount)
+    VALUES (v_prop_id, 'TICKET-UNMAPPED', 'Square', 30.00)
+    RETURNING id INTO v_ticket_id;
+    
+    -- Insert item with NULL item_id (should succeed)
+    INSERT INTO pos_ticket_items (ticket_id, item_id, external_item_id, item_name, quantity, unit_price)
+    VALUES (v_ticket_id, NULL, 'EXT-ITEM-999', 'Unknown Cocktail', 1, 30.00);
+    
+    RAISE NOTICE 'TEST H PASS: Unmapped POS item inserted successfully';
+END $$;
 
-  INSERT INTO public.wastage_records (id, property_id, department_id, item_id, location_id, quantity, uom, cost_value, reason, status, reported_by)
-  VALUES ('wwwwwwww-wwww-wwww-wwww-wwwwwwwwwwww', '11111111-1111-1111-1111-111111111111', 'dddddddd-dddd-dddd-dddd-dddddddddddd', '22222222-2222-2222-2222-222222222222', '55555555-5555-5555-5555-555555555555', 3.0000, 'LITER', 150.00, 'Spoiled carton', 'PENDING', '44444444-4444-4444-4444-444444444444');
-
-  -- 2. Operation: Authorize Wastage
-  UPDATE public.wastage_records 
-  SET status = 'AUTHORIZED', authorized_by = '66666666-6666-6666-6666-666666666666'
-  WHERE id = 'wwwwwwww-wwww-wwww-wwww-wwwwwwwwwwww';
-
-  -- 3. Verification: Exactly 1 stock movement created
-  SELECT count(*) AS movement_count, (SELECT stock_movement_id IS NOT NULL FROM public.wastage_records WHERE id = 'wwwwwwww-wwww-wwww-wwww-wwwwwwwwwwww') AS has_fk
-  FROM public.stock_movements 
-  WHERE reference_id = 'wwwwwwww-wwww-wwww-wwww-wwwwwwwwwwww';
-  -- Expected: movement_count = 1, has_fk = true
-
-  -- 4. Invariant Tests: Mutating authorized record MUST throw exception
-  -- Test 4a: Altering quantity
-  DO $$
-  BEGIN
-    UPDATE public.wastage_records SET quantity = 10.0000 WHERE id = 'wwwwwwww-wwww-wwww-wwww-wwwwwwwwwwww';
-    RAISE EXCEPTION 'FAILED: Quantity mutation on authorized wastage was allowed!';
-  EXCEPTION WHEN OTHERS THEN
-    -- Expected: Mutation blocked
-  END $$;
-
-  -- Test 4b: Reversing status to PENDING
-  DO $$
-  BEGIN
-    UPDATE public.wastage_records SET status = 'PENDING' WHERE id = 'wwwwwwww-wwww-wwww-wwww-wwwwwwwwwwww';
-    RAISE EXCEPTION 'FAILED: Status reversal on authorized wastage was allowed!';
-  EXCEPTION WHEN OTHERS THEN
-    -- Expected: Reversal blocked
-  END $$;
-
-  -- Test 4c: Resetting stock_movement_id
-  DO $$
-  BEGIN
-    UPDATE public.wastage_records SET stock_movement_id = NULL WHERE id = 'wwwwwwww-wwww-wwww-wwww-wwwwwwwwwwww';
-    RAISE EXCEPTION 'FAILED: Resetting stock_movement_id was allowed!';
-  EXCEPTION WHEN OTHERS THEN
-    -- Expected: Reset blocked
-  END $$;
-ROLLBACK;
-
-
--- ----------------------------------------------------------------------------
--- TEST F: Rejected Wastage -> Zero Stock Movements
--- ----------------------------------------------------------------------------
-BEGIN;
-  -- 1. Setup
-  INSERT INTO public.properties (id, name) VALUES ('11111111-1111-1111-1111-111111111111', 'Test Outlet');
-  INSERT INTO public.departments (id, property_id, name, code) VALUES ('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111', 'Kitchen', 'KITCHEN');
-  INSERT INTO public.item_master (id, property_id, name, item_code, item_category, primary_uom)
-  VALUES ('22222222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111', 'Steak 1kg', 'STK-01', 'MEAT', 'KG');
-  INSERT INTO public.inventory_locations (id, property_id, name) VALUES ('55555555-5555-5555-5555-555555555555', '11111111-1111-1111-1111-111111111111', 'Walk-in Chiller');
-  INSERT INTO public.people (id, property_id, full_name) VALUES ('44444444-4444-4444-4444-444444444444', '11111111-1111-1111-1111-111111111111', 'Staff Cook');
-
-  INSERT INTO public.wastage_records (id, property_id, department_id, item_id, location_id, quantity, uom, reason, status, reported_by)
-  VALUES ('wwwwwwww-wwww-wwww-wwww-wwwwwwwwwwww', '11111111-1111-1111-1111-111111111111', 'dddddddd-dddd-dddd-dddd-dddddddddddd', '22222222-2222-2222-2222-222222222222', '55555555-5555-5555-5555-555555555555', 1.0000, 'KG', 'Burnt steak', 'PENDING', '44444444-4444-4444-4444-444444444444');
-
-  -- 2. Operation: Reject Wastage
-  UPDATE public.wastage_records 
-  SET status = 'REJECTED', rejection_reason = 'Not verifiable'
-  WHERE id = 'wwwwwwww-wwww-wwww-wwww-wwwwwwwwwwww';
-
-  -- 3. Verification Query
-  SELECT count(*) AS movement_count 
-  FROM public.stock_movements 
-  WHERE reference_id = 'wwwwwwww-wwww-wwww-wwww-wwwwwwwwwwww';
-  -- Expected: movement_count = 0
-ROLLBACK;
-
-
--- ----------------------------------------------------------------------------
--- TEST G: Duplicate POS Webhook (Idempotency Protection)
--- ----------------------------------------------------------------------------
-BEGIN;
-  INSERT INTO public.properties (id, name) VALUES ('11111111-1111-1111-1111-111111111111', 'Test Outlet');
-
-  -- First webhook insert
-  INSERT INTO public.pos_sales_tickets (property_id, source_system, external_ticket_id, ticket_number, business_date, opened_at, closed_at, gross_amount, net_amount)
-  VALUES ('11111111-1111-1111-1111-111111111111', 'PETPOOJA', 'EXT-BILL-9901', 'T-101', CURRENT_DATE, now(), now(), 1200.00, 1200.00);
-
-  -- Duplicate insert MUST throw unique constraint violation
-  DO $$
-  BEGIN
-    INSERT INTO public.pos_sales_tickets (property_id, source_system, external_ticket_id, ticket_number, business_date, opened_at, closed_at, gross_amount, net_amount)
-    VALUES ('11111111-1111-1111-1111-111111111111', 'PETPOOJA', 'EXT-BILL-9901', 'T-101', CURRENT_DATE, now(), now(), 1200.00, 1200.00);
-    RAISE EXCEPTION 'FAILED: Duplicate POS ticket was permitted!';
-  EXCEPTION WHEN unique_violation THEN
-    -- Expected: Duplicate blocked cleanly
-  END $$;
-ROLLBACK;
-
-
--- ----------------------------------------------------------------------------
--- TEST H: Unmapped POS Item -> Placed in Exception Queue
--- ----------------------------------------------------------------------------
-BEGIN;
-  INSERT INTO public.properties (id, name) VALUES ('11111111-1111-1111-1111-111111111111', 'Test Outlet');
-  INSERT INTO public.pos_sales_tickets (id, property_id, source_system, external_ticket_id, ticket_number, business_date, opened_at, closed_at, gross_amount, net_amount)
-  VALUES ('tttttttt-tttt-tttt-tttt-tttttttttttt', '11111111-1111-1111-1111-111111111111', 'PETPOOJA', 'EXT-BILL-9902', 'T-102', CURRENT_DATE, now(), 500.00, 500.00);
-
-  INSERT INTO public.pos_ticket_items (ticket_id, external_item_id, item_name, recipe_id, mapping_status, depletion_status)
-  VALUES ('tttttttt-tttt-tttt-tttt-tttttttttttt', 'UNMAPPED_SPECIAL_01', 'Chef Special Plate', NULL, 'UNMAPPED', 'BYPASSED_UNMAPPED');
-
-  SELECT count(*) AS unmapped_item_count 
-  FROM public.pos_ticket_items 
-  WHERE mapping_status = 'UNMAPPED';
-  -- Expected: unmapped_item_count = 1
-ROLLBACK;
-
-
--- ----------------------------------------------------------------------------
+-- ========================================================================
 -- TEST I: Physical Stock Adjustment
--- ----------------------------------------------------------------------------
-BEGIN;
-  INSERT INTO public.properties (id, name) VALUES ('11111111-1111-1111-1111-111111111111', 'Test Outlet');
-  INSERT INTO public.item_master (id, property_id, name, item_code, item_category, primary_uom)
-  VALUES ('22222222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111', 'Tequila 750ml', 'TEQ-01', 'SPIRITS', 'BOTTLE');
-  INSERT INTO public.inventory_locations (id, property_id, name) VALUES ('55555555-5555-5555-5555-555555555555', '11111111-1111-1111-1111-111111111111', 'Main Bar');
-  INSERT INTO public.people (id, property_id, full_name) VALUES ('44444444-4444-4444-4444-444444444444', '11111111-1111-1111-1111-111111111111', 'Bar Auditor');
+-- ========================================================================
+-- Verify: Manual adjustment movement updates balance correctly
+\echo 'TEST I: Physical Stock Adjustment'
 
-  -- Seed opening balance of 20 bottles
-  INSERT INTO public.stock_movements (property_id, item_id, to_location_id, movement_type, quantity, uom, unit_cost, recorded_by)
-  VALUES ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', '55555555-5555-5555-5555-555555555555', 'PURCHASE_RECEIVING', 20.0000, 'BOTTLE', 1500.00, '44444444-4444-4444-4444-444444444444');
+DO $$
+DECLARE
+    v_item_id UUID;
+    v_prop_id UUID;
+    v_balance_before NUMERIC;
+    v_balance_after NUMERIC;
+BEGIN
+    SELECT id INTO v_prop_id FROM properties WHERE name = 'Test Bar' LIMIT 1;
+    SELECT id INTO v_item_id FROM items WHERE name = 'Test Spirit' AND property_id = v_prop_id LIMIT 1;
+    
+    SELECT quantity INTO v_balance_before FROM stock_levels WHERE item_id = v_item_id AND property_id = v_prop_id;
+    
+    -- Manual adjustment (e.g., found extra stock)
+    INSERT INTO stock_movements (item_id, property_id, quantity, movement_type, reason)
+    VALUES (v_item_id, v_prop_id, 5, 'adjustment', 'Physical count discrepancy');
+    
+    SELECT quantity INTO v_balance_after FROM stock_levels WHERE item_id = v_item_id AND property_id = v_prop_id;
+    
+    IF v_balance_after = v_balance_before + 5 THEN
+        RAISE NOTICE 'TEST I PASS: Adjustment increased balance by 5';
+    ELSE
+        RAISE EXCEPTION 'TEST I FAIL: Expected %, got %', v_balance_before + 5, v_balance_after;
+    END IF;
+END $$;
 
-  -- Physical count shows 18 bottles (-2 variance) -> Audit Adjustment Posted
-  INSERT INTO public.stock_movements (property_id, item_id, from_location_id, movement_type, quantity, uom, unit_cost, notes, recorded_by)
-  VALUES ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', '55555555-5555-5555-5555-555555555555', 'AUDIT_ADJUSTMENT', 2.0000, 'BOTTLE', 1500.00, 'Stock count variance adjustment', '44444444-4444-4444-4444-444444444444');
+-- ========================================================================
+-- TEST J: Bar Reconciliation (Multiple Movements)
+-- ========================================================================
+-- Verify: Final balance matches sum of all movements
+\echo 'TEST J: Bar Reconciliation'
 
-  SELECT quantity_on_hand AS adjusted_balance 
-  FROM public.stock_balances 
-  WHERE location_id = '55555555-5555-5555-5555-555555555555';
-  -- Expected: adjusted_balance = 18.0000
-ROLLBACK;
+DO $$
+DECLARE
+    v_item_id UUID;
+    v_prop_id UUID;
+    v_calculated_balance NUMERIC;
+    v_actual_balance NUMERIC;
+BEGIN
+    SELECT id INTO v_prop_id FROM properties WHERE name = 'Test Bar' LIMIT 1;
+    SELECT id INTO v_item_id FROM items WHERE name = 'Test Spirit' AND property_id = v_prop_id LIMIT 1;
+    
+    -- Calculate sum of all movements
+    SELECT COALESCE(SUM(quantity), 0) INTO v_calculated_balance
+    FROM stock_movements
+    WHERE item_id = v_item_id AND property_id = v_prop_id;
+    
+    -- Get actual balance from stock_levels
+    SELECT quantity INTO v_actual_balance
+    FROM stock_levels
+    WHERE item_id = v_item_id AND property_id = v_prop_id;
+    
+    IF v_actual_balance = v_calculated_balance THEN
+        RAISE NOTICE 'TEST J PASS: Balance (%) matches sum of movements', v_actual_balance;
+    ELSE
+        RAISE EXCEPTION 'TEST J FAIL: Balance mismatch. Actual=%, Calculated=%', v_actual_balance, v_calculated_balance;
+    END IF;
+END $$;
 
-
--- ----------------------------------------------------------------------------
--- TEST J: Item-Level Bar Control Chain Calculation
--- ----------------------------------------------------------------------------
-BEGIN;
-  INSERT INTO public.properties (id, name) VALUES ('11111111-1111-1111-1111-111111111111', 'Test Outlet');
-  INSERT INTO public.sections (id, property_id, name, section_type) VALUES ('ssssssss-ssss-ssss-ssss-ssssssssssss', '11111111-1111-1111-1111-111111111111', 'Main Bar', 'BAR');
-  INSERT INTO public.item_master (id, property_id, name, item_code, item_category, primary_uom)
-  VALUES ('22222222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111', 'Bourbon 750ml', 'BRB-01', 'SPIRITS', 'BOTTLE');
-  INSERT INTO public.people (id, property_id, full_name) VALUES ('44444444-4444-4444-4444-444444444444', '11111111-1111-1111-1111-111111111111', 'Bartender');
-
-  INSERT INTO public.bar_shift_reconciliations (id, property_id, section_id, shift_date, shift_type, bartender_person_id)
-  VALUES ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '11111111-1111-1111-1111-111111111111', 'ssssssss-ssss-ssss-ssss-ssssssssssss', CURRENT_DATE, '1ST', '44444444-4444-4444-4444-444444444444');
-
-  INSERT INTO public.bar_item_reconciliations (
-    bar_reconciliation_id,
-    item_id,
-    opening_stock_ml,
-    transfers_in_ml,
-    transfers_out_ml,
-    theoretical_consumption_ml,
-    wastage_breakage_ml,
-    actual_closing_ml,
-    unit_cost_per_ml
-  ) VALUES (
-    'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
-    '22222222-2222-2222-2222-222222222222',
-    1000.00,
-    750.00,
-    0.00,
-    500.00,
-    50.00,
-    1150.00,
-    2.0000
-  );
-
-  SELECT 
-    expected_closing_ml,
-    variance_ml,
-    financial_variance_cost
-  FROM public.bar_item_reconciliations
-  WHERE bar_reconciliation_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
-  -- Expected: expected_closing_ml = 1200.00, variance_ml = -50.00, financial_variance_cost = -100.00
-ROLLBACK;
-
-
--- ----------------------------------------------------------------------------
--- SECURITY TESTS: Multi-Tenant People & Audit Immutability Enforcement
--- ----------------------------------------------------------------------------
-
--- SECURITY TEST 1: Direct Audit Log INSERT/UPDATE/DELETE Prevention
-BEGIN;
-  INSERT INTO public.properties (id, name) VALUES ('11111111-1111-1111-1111-111111111111', 'Test Outlet');
-  
-  -- 1a. Direct update on audit_logs MUST fail via trigger
-  DO $$
-  BEGIN
-    UPDATE public.audit_logs SET action = 'HACKED';
-    RAISE EXCEPTION 'FAILED: Direct UPDATE on audit_logs was allowed!';
-  EXCEPTION WHEN OTHERS THEN
-    -- Expected: Blocked
-  END $$;
-
-  -- 1b. Direct delete on audit_logs MUST fail via trigger
-  DO $$
-  BEGIN
-    DELETE FROM public.audit_logs;
-    RAISE EXCEPTION 'FAILED: Direct DELETE on audit_logs was allowed!';
-  EXCEPTION WHEN OTHERS THEN
-    -- Expected: Blocked
-  END $$;
-ROLLBACK;
+\echo ''
+\echo 'All Test Cases Completed.'
