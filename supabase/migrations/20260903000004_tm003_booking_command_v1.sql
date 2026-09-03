@@ -1,9 +1,8 @@
 -- TM-003 LOOP-BLR BD Booking Command System
 -- Migration: 20260903000004_tm003_booking_command_v1
 -- Scope: Booking intelligence, provenance, governance, locks, change control, audit.
--- This migration is self-contained with respect to the TM-003 application domain.
--- It does NOT depend on legacy public.properties/public.people/has_role_at_least().
--- No destructive operations are performed.
+-- Self-contained TM-003 schema; does not depend on legacy application tables.
+-- No destructive operations.
 
 create extension if not exists pgcrypto;
 
@@ -12,7 +11,6 @@ create type tm003_booking_status as enum (
   'GOVERNANCE_LOCKED','PREPARING','READY','LIVE','CLOSING','COMPLETED',
   'CANCELLED','ON_HOLD','EXCEPTION'
 );
-
 create type tm003_signal_type as enum ('WHATSAPP','TELEGRAM','BD','CALL_NOTE','EMAIL','MANUAL','SYSTEM');
 create type tm003_signal_class as enum (
   'NEW_BOOKING','BOOKING_CHANGE','HEADCOUNT_CHANGE','TIME_CHANGE','PAYMENT_UPDATE',
@@ -26,9 +24,8 @@ create type tm003_change_class as enum (
 create type tm003_authority_level as enum ('GREEN','AMBER','RED','BLACK');
 create type tm003_readiness_state as enum ('NOT_READY','READY_FOR_LOCK','LOCKED','EXECUTION_READY','EXCEPTION');
 create type tm003_outcome_status as enum ('SUCCESS','PARTIAL_SUCCESS','FAILED','CANCELLED');
+create type tm003_role_code as enum ('admin','manager','supervisor','staff');
 
--- Minimal platform foundation. This is intentionally TM-003-scoped so it can later
--- integrate with the wider platform without forcing a legacy schema into this project.
 create table tm003_properties (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -44,7 +41,7 @@ create table tm003_operators (
   auth_user_id uuid unique references auth.users(id) on delete set null,
   full_name text not null,
   email text,
-  role_code text not null default 'staff',
+  role_code tm003_role_code not null default 'staff',
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -54,11 +51,24 @@ create table tm003_property_memberships (
   id uuid primary key default gen_random_uuid(),
   property_id uuid not null references tm003_properties(id) on delete cascade,
   operator_id uuid not null references tm003_operators(id) on delete cascade,
-  role_code text not null default 'staff',
+  role_code tm003_role_code not null default 'staff',
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
   unique(property_id, operator_id)
 );
+
+create or replace function tm003_role_rank(role_code tm003_role_code)
+returns integer
+language sql
+immutable
+as $$
+  select case role_code
+    when 'admin' then 1
+    when 'manager' then 2
+    when 'supervisor' then 3
+    when 'staff' then 4
+  end;
+$$;
 
 create or replace function tm003_current_operator_id()
 returns uuid
@@ -67,26 +77,44 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select id from tm003_operators
+  select id
+  from tm003_operators
   where auth_user_id = auth.uid() and is_active = true
   limit 1;
 $$;
 
-create or replace function tm003_has_property_access(target_property_id uuid, required_role text default 'staff')
+create or replace function tm003_current_role_for_property(target_property_id uuid)
+returns tm003_role_code
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select pm.role_code
+  from tm003_property_memberships pm
+  join tm003_operators o on o.id = pm.operator_id
+  where pm.property_id = target_property_id
+    and pm.is_active = true
+    and o.auth_user_id = auth.uid()
+    and o.is_active = true
+  order by tm003_role_rank(pm.role_code)
+  limit 1;
+$$;
+
+create or replace function tm003_has_property_access(
+  target_property_id uuid,
+  required_role tm003_role_code default 'staff'
+)
 returns boolean
 language sql
 stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select exists (
-    select 1
-    from tm003_property_memberships pm
-    join tm003_operators o on o.id = pm.operator_id
-    where pm.property_id = target_property_id
-      and pm.is_active = true
-      and o.auth_user_id = auth.uid()
-      and o.is_active = true
+  select coalesce(
+    tm003_role_rank(tm003_current_role_for_property(target_property_id))
+      <= tm003_role_rank(required_role),
+    false
   );
 $$;
 
@@ -162,7 +190,6 @@ create table tm003_booking_events (
   payload jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
-
 create index tm003_events_booking_idx on tm003_booking_events(booking_id, created_at desc);
 
 create table tm003_booking_locks (
@@ -251,7 +278,6 @@ create table tm003_audit_log (
   created_at timestamptz not null default now()
 );
 
--- Establish booking -> latest lock only after the lock table exists.
 alter table tm003_bookings
   add constraint tm003_bookings_latest_lock_fk
   foreign key (latest_lock_id) references tm003_booking_locks(id) on delete set null;
@@ -266,11 +292,11 @@ begin
 end;
 $$;
 
-create trigger tm003_bookings_updated_at before update on tm003_bookings
+create trigger tm003_properties_updated_at before update on tm003_properties
 for each row execute function tm003_set_updated_at();
 create trigger tm003_operators_updated_at before update on tm003_operators
 for each row execute function tm003_set_updated_at();
-create trigger tm003_properties_updated_at before update on tm003_properties
+create trigger tm003_bookings_updated_at before update on tm003_bookings
 for each row execute function tm003_set_updated_at();
 create trigger tm003_tasks_updated_at before update on tm003_tasks
 for each row execute function tm003_set_updated_at();
@@ -291,7 +317,6 @@ for each row execute function tm003_prevent_immutable_update();
 create trigger tm003_events_immutable before update or delete on tm003_booking_events
 for each row execute function tm003_prevent_immutable_update();
 
--- Minimal RLS. Unauthenticated database clients cannot access TM-003.
 alter table tm003_properties enable row level security;
 alter table tm003_operators enable row level security;
 alter table tm003_property_memberships enable row level security;
@@ -305,22 +330,55 @@ alter table tm003_escalations enable row level security;
 alter table tm003_outcomes enable row level security;
 alter table tm003_audit_log enable row level security;
 
-create policy tm003_properties_select on tm003_properties for select using (tm003_has_property_access(id));
-create policy tm003_operators_self_select on tm003_operators for select using (id = tm003_current_operator_id());
-create policy tm003_memberships_select on tm003_property_memberships for select using (tm003_has_property_access(property_id));
-create policy tm003_bookings_select on tm003_bookings for select using (tm003_has_property_access(property_id));
-create policy tm003_signals_select on tm003_signals for select using (tm003_has_property_access(property_id));
-create policy tm003_events_select on tm003_booking_events for select using (exists (select 1 from tm003_bookings b where b.id = booking_id and tm003_has_property_access(b.property_id)));
-create policy tm003_locks_select on tm003_booking_locks for select using (exists (select 1 from tm003_bookings b where b.id = booking_id and tm003_has_property_access(b.property_id)));
-create policy tm003_change_requests_select on tm003_change_requests for select using (exists (select 1 from tm003_bookings b where b.id = booking_id and tm003_has_property_access(b.property_id)));
-create policy tm003_tasks_select on tm003_tasks for select using (exists (select 1 from tm003_bookings b where b.id = booking_id and tm003_has_property_access(b.property_id)));
-create policy tm003_escalations_select on tm003_escalations for select using (booking_id is null or exists (select 1 from tm003_bookings b where b.id = tm003_escalations.booking_id and tm003_has_property_access(b.property_id)));
-create policy tm003_outcomes_select on tm003_outcomes for select using (exists (select 1 from tm003_bookings b where b.id = booking_id and tm003_has_property_access(b.property_id)));
-create policy tm003_audit_select on tm003_audit_log for select using (booking_id is null or exists (select 1 from tm003_bookings b where b.id = tm003_audit_log.booking_id and tm003_has_property_access(b.property_id)));
+create policy tm003_properties_select on tm003_properties
+  for select using (tm003_has_property_access(id, 'staff'));
+create policy tm003_operators_self_select on tm003_operators
+  for select using (id = tm003_current_operator_id());
+create policy tm003_memberships_select on tm003_property_memberships
+  for select using (tm003_has_property_access(property_id, 'staff'));
+create policy tm003_bookings_select on tm003_bookings
+  for select using (tm003_has_property_access(property_id, 'staff'));
+create policy tm003_signals_select on tm003_signals
+  for select using (tm003_has_property_access(property_id, 'staff'));
+create policy tm003_events_select on tm003_booking_events
+  for select using (exists (select 1 from tm003_bookings b where b.id = booking_id and tm003_has_property_access(b.property_id, 'staff')));
+create policy tm003_locks_select on tm003_booking_locks
+  for select using (exists (select 1 from tm003_bookings b where b.id = booking_id and tm003_has_property_access(b.property_id, 'staff')));
+create policy tm003_change_requests_select on tm003_change_requests
+  for select using (exists (select 1 from tm003_bookings b where b.id = booking_id and tm003_has_property_access(b.property_id, 'staff')));
+create policy tm003_tasks_select on tm003_tasks
+  for select using (exists (select 1 from tm003_bookings b where b.id = booking_id and tm003_has_property_access(b.property_id, 'staff')));
+create policy tm003_escalations_select on tm003_escalations
+  for select using (
+    booking_id is null
+    or exists (select 1 from tm003_bookings b where b.id = tm003_escalations.booking_id and tm003_has_property_access(b.property_id, 'staff'))
+  );
+create policy tm003_outcomes_select on tm003_outcomes
+  for select using (exists (select 1 from tm003_bookings b where b.id = booking_id and tm003_has_property_access(b.property_id, 'staff')));
+create policy tm003_audit_select on tm003_audit_log
+  for select using (
+    booking_id is null
+    or exists (select 1 from tm003_bookings b where b.id = tm003_audit_log.booking_id and tm003_has_property_access(b.property_id, 'manager'))
+  );
+
+-- Direct authenticated clients have no generic write access.
+-- Governed server-side operations use the service role and explicit application actions.
+create policy tm003_properties_no_direct_write on tm003_properties for all using (false) with check (false);
+create policy tm003_operators_no_direct_write on tm003_operators for all using (false) with check (false);
+create policy tm003_memberships_no_direct_write on tm003_property_memberships for all using (false) with check (false);
+create policy tm003_bookings_no_direct_write on tm003_bookings for all using (false) with check (false);
+create policy tm003_signals_no_direct_write on tm003_signals for all using (false) with check (false);
+create policy tm003_events_no_direct_write on tm003_booking_events for all using (false) with check (false);
+create policy tm003_locks_no_direct_write on tm003_booking_locks for all using (false) with check (false);
+create policy tm003_change_requests_no_direct_write on tm003_change_requests for all using (false) with check (false);
+create policy tm003_tasks_no_direct_write on tm003_tasks for all using (false) with check (false);
+create policy tm003_escalations_no_direct_write on tm003_escalations for all using (false) with check (false);
+create policy tm003_outcomes_no_direct_write on tm003_outcomes for all using (false) with check (false);
+create policy tm003_audit_no_direct_write on tm003_audit_log for all using (false) with check (false);
 
 revoke all on function tm003_current_operator_id() from public;
-revoke all on function tm003_has_property_access(uuid, text) from public;
+revoke all on function tm003_current_role_for_property(uuid) from public;
+revoke all on function tm003_has_property_access(uuid, tm003_role_code) from public;
 grant execute on function tm003_current_operator_id() to authenticated;
-grant execute on function tm003_has_property_access(uuid, text) to authenticated;
-
-comment on schema public is 'TM-003 booking command system is scoped under tm003_* objects to avoid legacy schema coupling.';
+grant execute on function tm003_current_role_for_property(uuid) to authenticated;
+grant execute on function tm003_has_property_access(uuid, tm003_role_code) to authenticated;
