@@ -1,0 +1,78 @@
+name: TM-003 CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'lib/**'
+      - 'supabase/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - '.github/workflows/tm003-ci.yml'
+  push:
+    branches:
+      - 'feat/tm-003-booking-command-v1'
+    paths:
+      - 'app/**'
+      - 'lib/**'
+      - 'supabase/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - '.github/workflows/tm003-ci.yml'
+
+jobs:
+  web-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+  tm003-static-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required TM-003 files
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            "supabase/migrations/20260903000004_tm003_booking_command_v1.sql"
+            "supabase/test_tm003_v1.sql"
+            "supabase/test_tm003_static_contracts.sql"
+            "supabase/verification_tm003_v1.sql"
+          )
+          for file in "${required[@]}"; do
+            test -f "$file"
+            echo "PASS: $file"
+          done
+
+      - name: Validate destructive SQL is absent from TM-003 files
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=$(find supabase/migrations supabase -maxdepth 2 -type f \( -name '*tm003*.sql' -o -name '20260903000004_tm003_booking_command_v1.sql' \) -print)
+          if grep -Ein '(^|[[:space:];])(drop[[:space:]]+(table|type|schema)|truncate[[:space:]]+)' $files; then
+            echo 'FAIL: destructive SQL found'
+            exit 1
+          fi
+          echo 'PASS: no destructive SQL in TM-003 validation surface'
