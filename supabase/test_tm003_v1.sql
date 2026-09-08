@@ -1,4 +1,4 @@
--- TM-003 deterministic governance test scenarios v4
+-- TM-003 deterministic governance test scenarios v5
 -- Disposable/local test database only. Entire fixture rolls back.
 
 begin;
@@ -77,6 +77,8 @@ do $$ begin
   end;
 end $$;
 
+-- Lock must remain unreachable before the booking is governance-locked.
+-- The actor model is asserted separately; this test accepts either guard firing first.
 do $$ begin
   begin
     perform public.tm003_create_booking_lock(
@@ -107,6 +109,13 @@ select public.tm003_transition_booking(
   'GOVERNANCE_LOCKED', 'ready for lock'
 );
 
+-- Lock creation is now executed with an explicit actor context.
+do $$ begin
+  if public.tm003_current_execution_actor_id() is null then
+    raise exception 'FAIL execution actor context missing';
+  end if;
+end $$;
+
 do $$ begin
   begin
     perform public.tm003_create_booking_lock(
@@ -115,8 +124,7 @@ do $$ begin
     );
     raise exception 'FAIL non-canonical lock snapshot accepted';
   exception when others then
-    if position('snapshot' in lower(sqlerrm)) = 0
-       and position('authenticated operator' in lower(sqlerrm)) = 0 then raise; end if;
+    if position('snapshot' in lower(sqlerrm)) = 0 then raise; end if;
   end;
 end $$;
 
