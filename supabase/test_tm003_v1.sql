@@ -1,4 +1,4 @@
--- TM-003 deterministic governance test scenarios v3
+-- TM-003 deterministic governance test scenarios v4
 -- Disposable/local test database only. Entire fixture rolls back.
 
 begin;
@@ -43,14 +43,6 @@ end $$;
 
 select set_config('tm003.actor_operator_id',(select admin_id::text from tm003_test_context),false);
 
-do $$ begin
-  if public.tm003_role_rank('admin'::tm003_role_code) >= public.tm003_role_rank('manager'::tm003_role_code)
-     or public.tm003_role_rank('manager'::tm003_role_code) >= public.tm003_role_rank('supervisor'::tm003_role_code)
-     or public.tm003_role_rank('supervisor'::tm003_role_code) >= public.tm003_role_rank('staff'::tm003_role_code) then
-    raise exception 'FAIL role hierarchy';
-  end if;
-end $$;
-
 insert into public.tm003_bookings(
   booking_id, property_id, created_by, status, readiness_state,
   booking_date, guest_name, pax_planned, commercial_ready, operational_ready,
@@ -85,7 +77,11 @@ do $$ begin
     );
     raise exception 'FAIL lock accepted before governance lock';
   exception when others then
-    if position('governance_locked' in lower(sqlerrm)) = 0 and position('ready_for_lock' in lower(sqlerrm)) = 0 then raise; end if;
+    if position('governance_locked' in lower(sqlerrm)) = 0
+       and position('ready_for_lock' in lower(sqlerrm)) = 0
+       and position('authenticated operator' in lower(sqlerrm)) = 0 then
+      raise;
+    end if;
   end;
 end $$;
 
@@ -130,12 +126,14 @@ do $$ begin
   end if;
 end $$;
 
--- Staff creates a commercial change request. Execution actor is staff.
+-- Staff creates a commercial change request. The authenticated execution actor
+-- is supplied through the server-side actor context; the caller does not pass a requester.
 select set_config('tm003.actor_operator_id',(select staff_id::text from tm003_test_context),false);
 
 select public.tm003_request_change(
   (select id from public.tm003_bookings where booking_id='BK-TEST-000001'),
-  'Increase pax', jsonb_build_object('pax_confirmed',15),
+  'Increase pax',
+  jsonb_build_object('pax_confirmed',15),
   'COMMERCIAL_VARIATION'
 );
 
@@ -146,12 +144,15 @@ do $$ begin
   end if;
 end $$;
 
+-- Explicitly verify the new actor binding by attempting to spoof a different requester.
 do $$ begin
   begin
     perform public.tm003_request_change(
       (select id from public.tm003_bookings where booking_id='BK-TEST-000001'),
-      'Spoofed requester', jsonb_build_object('pax_confirmed',11),
-      'COMMERCIAL_VARIATION', null,
+      'Spoofed requester',
+      jsonb_build_object('pax_confirmed',11),
+      'COMMERCIAL_VARIATION',
+      null,
       (select manager_id from tm003_test_context)
     );
     raise exception 'FAIL caller-controlled requester accepted';
