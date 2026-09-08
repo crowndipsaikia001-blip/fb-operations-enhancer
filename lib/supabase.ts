@@ -1,33 +1,75 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
-
-function getConfiguredSupabaseUrl() {
-  if (supabaseUrl) return supabaseUrl
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('NEXT_PUBLIC_SUPABASE_URL is required at runtime')
-  }
-  return 'https://example.supabase.co'
+type SupabaseEnv = {
+  NEXT_PUBLIC_SUPABASE_URL?: string
+  NEXT_PUBLIC_SUPABASE_ANON_KEY?: string
+  SUPABASE_SERVICE_ROLE_KEY?: string
 }
 
-function getConfiguredKey(key: string, envName: string) {
-  if (key) return key
+const env = process.env as SupabaseEnv
+
+const BUILD_FALLBACK_URL = 'https://example.supabase.co'
+const BUILD_FALLBACK_KEY = 'build-time-placeholder'
+
+function isValidHttpUrl(value: string | undefined): value is string {
+  if (!value) return false
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function requireRuntimeUrl(): string {
+  const value = env.NEXT_PUBLIC_SUPABASE_URL
+  if (isValidHttpUrl(value)) return value
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('NEXT_PUBLIC_SUPABASE_URL must be a valid HTTP or HTTPS URL')
+  }
+
+  return BUILD_FALLBACK_URL
+}
+
+function requireRuntimeKey(value: string | undefined, envName: string): string {
+  if (value) return value
+
   if (process.env.NODE_ENV === 'production') {
     throw new Error(`${envName} is required at runtime`)
   }
-  return 'build-time-placeholder'
+
+  return BUILD_FALLBACK_KEY
 }
 
-const configuredUrl = getConfiguredSupabaseUrl()
-const configuredAnonKey = getConfiguredKey(supabaseAnonKey, 'NEXT_PUBLIC_SUPABASE_ANON_KEY')
-const configuredServiceRoleKey = getConfiguredKey(supabaseServiceRoleKey, 'SUPABASE_SERVICE_ROLE_KEY')
+export function createSupabaseClients(): {
+  supabase: SupabaseClient
+  supabaseAdmin: SupabaseClient
+} {
+  const url = requireRuntimeUrl()
+  const anonKey = requireRuntimeKey(env.NEXT_PUBLIC_SUPABASE_ANON_KEY, 'NEXT_PUBLIC_SUPABASE_ANON_KEY')
+  const serviceRoleKey = requireRuntimeKey(env.SUPABASE_SERVICE_ROLE_KEY, 'SUPABASE_SERVICE_ROLE_KEY')
 
-export const supabase = createClient(configuredUrl, configuredAnonKey)
+  return {
+    supabase: createClient(url, anonKey),
+    supabaseAdmin: createClient(url, serviceRoleKey, {
+      auth: { autoRefreshToken: false },
+    }),
+  }
+}
 
-export const supabaseAdmin = createClient(
-  configuredUrl,
-  configuredServiceRoleKey,
-  { auth: { autoRefreshToken: false } },
-)
+// Lazy proxies prevent Next.js build-time module evaluation from requiring
+// runtime Supabase configuration while keeping the existing API unchanged.
+export const supabase = new Proxy({} as SupabaseClient, {
+  get(_target, property, receiver) {
+    const client = createSupabaseClients().supabase
+    return Reflect.get(client as object, property, receiver)
+  },
+})
+
+export const supabaseAdmin = new Proxy({} as SupabaseClient, {
+  get(_target, property, receiver) {
+    const client = createSupabaseClients().supabaseAdmin
+    return Reflect.get(client as object, property, receiver)
+  },
+})
