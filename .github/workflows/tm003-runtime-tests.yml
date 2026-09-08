@@ -97,10 +97,16 @@ jobs:
           cat <<'SQL' | docker exec -i tm003-postgres psql -v ON_ERROR_STOP=1 -U postgres -d postgres
           begin;
           create temporary table tm003_security_context(actor_id uuid) on commit drop;
-          insert into public.tm003_operators(full_name, role_code)
-          values ('TM003 Security Smoke Admin','admin')
-          returning id into temporary table tm003_new_operator;
-          insert into tm003_security_context(actor_id) select id from tm003_new_operator;
+          do $$
+          declare
+            v_actor uuid;
+          begin
+            insert into public.tm003_operators(full_name, role_code)
+            values ('TM003 Security Smoke Admin','admin')
+            returning id into v_actor;
+            insert into tm003_security_context(actor_id) values (v_actor);
+          end;
+          $$;
           select set_config('tm003.actor_operator_id',(select actor_id::text from tm003_security_context),false);
           do $$
           begin
