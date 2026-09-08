@@ -1,5 +1,5 @@
 -- TM-003 actor security hardening V1
--- Consequential mutations must derive the actor from the authenticated operator context.
+-- Consequential mutations derive the actor from authenticated operator context.
 -- Trusted server-side service-role execution may establish the operator through a transaction-local setting.
 -- No client-supplied operator id is trusted.
 
@@ -37,8 +37,6 @@ $$;
 revoke execute on function public.tm003_execution_actor_id() from public, anon;
 grant execute on function public.tm003_execution_actor_id() to authenticated, service_role;
 
--- Prevent untrusted clients from invoking governed mutation functions directly.
--- Server-side code uses service_role plus a transaction-local tm003.actor_operator_id setting.
 revoke execute on function public.tm003_transition_booking(uuid, tm003_booking_status, text, uuid) from public, anon, authenticated;
 revoke execute on function public.tm003_request_change(uuid, text, jsonb, tm003_change_class, uuid, uuid) from public, anon, authenticated;
 revoke execute on function public.tm003_approve_change(uuid, uuid, text) from public, anon, authenticated;
@@ -51,7 +49,6 @@ grant execute on function public.tm003_approve_change(uuid, uuid, text) to servi
 grant execute on function public.tm003_apply_change(uuid, uuid) to service_role;
 grant execute on function public.tm003_create_booking_lock(uuid, jsonb, uuid, uuid) to service_role;
 
--- Replace caller-controlled actor resolution in the governed mutation functions.
 create or replace function public.tm003_transition_booking(
   p_booking_id uuid,
   p_to_status tm003_booking_status,
@@ -288,6 +285,12 @@ begin
   where id=v_request.booking_id
   returning * into v_after;
 
+  if v_after.pax_planned is not null and v_after.pax_planned < 0 then raise exception 'TM-003 pax_planned cannot be negative'; end if;
+  if v_after.pax_confirmed is not null and v_after.pax_confirmed < 0 then raise exception 'TM-003 pax_confirmed cannot be negative'; end if;
+  if v_after.advance_required is not null and v_after.advance_required < 0 then raise exception 'TM-003 advance_required cannot be negative'; end if;
+  if v_after.advance_received is not null and v_after.advance_received < 0 then raise exception 'TM-003 advance_received cannot be negative'; end if;
+  if v_after.total_expected is not null and v_after.total_expected < 0 then raise exception 'TM-003 total_expected cannot be negative'; end if;
+
   insert into public.tm003_booking_events(event_id,booking_id,signal_id,event_type,actor_operator_id,payload)
   values(
     'EVT-' || to_char(current_date,'YYYYMMDD') || '-' || upper(substr(replace(gen_random_uuid()::text,'-',''),1,6)),
@@ -297,6 +300,7 @@ begin
 
   v_snapshot := public.tm003_booking_snapshot(v_after.id);
 
+  perform set_config('tm003.internal_apply','on',true);
   select * into v_new_lock
   from public.tm003_create_booking_lock(
     v_after.id, v_snapshot, null, v_actor
@@ -314,8 +318,79 @@ begin
     jsonb_build_object('change_request_id',v_request.id,'lock_version',v_new_lock.version)
   );
 
-  return v_after;
+  return (select b.* from public.tm003_bookings b where b.id=v_after.id);
 end;
 $$;
 
-revoke execute on function public.tm003_execution_actor_id() from anon;
+create or replace function public.tm003_create_booking_lock(
+  p_booking_id uuid,
+  p_snapshot jsonb,
+  p_source_event_id uuid default null,
+  p_actor_operator_id uuid default null
+)
+returns public.tm003_booking_locks
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_booking public.tm003_bookings%rowtype;
+  v_lock public.tm003_booking_locks%rowtype;
+  v_actor uuid;
+  v_next_version integer;
+  v_expected_snapshot jsonb;
+begin
+  select * into v_booking from public.tm003_bookings where id=p_booking_id for update;
+  if not found then raise exception 'TM-003 booking not found: %', p_booking_id; end if;
+
+  v_actor := public.tm003_execution_actor_id();
+  if v_actor is null then raise exception 'TM-003 lock creation requires an authenticated execution actor'; end if;
+  if p_actor_operator_id is not null and p_actor_operator_id <> v_actor then
+    raise exception 'TM-003 caller-supplied lock actor does not match execution actor';
+  end if;
+  if v_booking.status <> 'GOVERNANCE_LOCKED' then raise exception 'TM-003 booking must be GOVERNANCE_LOCKED before lock creation'; end if;
+  if v_booking.readiness_state <> 'READY_FOR_LOCK' then raise exception 'TM-003 booking must have READY_FOR_LOCK readiness before lock creation'; end if;
+  if not(v_booking.commercial_ready and v_booking.operational_ready) then raise exception 'TM-003 cannot create lock before commercial and operational readiness'; end if;
+
+  v_expected_snapshot := public.tm003_booking_snapshot(p_booking_id);
+  if coalesce(p_snapshot,'{}'::jsonb) <> v_expected_snapshot then raise exception 'TM-003 supplied lock snapshot does not match canonical booking state'; end if;
+
+  select coalesce(max(version),0)+1 into v_next_version from public.tm003_booking_locks where booking_id=p_booking_id;
+  if v_next_version > 1 and v_booking.latest_lock_id is null then raise exception 'TM-003 lock chain is inconsistent: missing latest lock'; end if;
+
+  if p_source_event_id is not null and not exists(select 1 from public.tm003_booking_events e where e.id=p_source_event_id and e.booking_id=p_booking_id) then
+    raise exception 'TM-003 source event does not belong to booking';
+  end if;
+
+  insert into public.tm003_booking_locks(lock_id,booking_id,version,source_event_id,locked_by,snapshot,immutable)
+  values('LCK-'||to_char(current_date,'YYYYMMDD')||'-'||upper(substr(replace(gen_random_uuid()::text,'-',''),1,6)),p_booking_id,v_next_version,p_source_event_id,v_actor,v_expected_snapshot,true)
+  returning * into v_lock;
+
+  update public.tm003_bookings set latest_lock_id=v_lock.id,readiness_state='LOCKED'::tm003_readiness_state,updated_at=now() where id=p_booking_id;
+  insert into public.tm003_audit_log(booking_id,actor_operator_id,action,new_data,metadata)
+  values(p_booking_id,v_actor,'BOOKING_LOCK_CREATED',to_jsonb(v_lock),jsonb_build_object('version',v_next_version));
+  return v_lock;
+end;
+$$;
+
+create or replace function public.tm003_prevent_audit_mutation()
+returns trigger language plpgsql as $$
+begin
+  raise exception 'TM-003 audit log is append-only';
+end;
+$$;
+drop trigger if exists tm003_audit_immutable on public.tm003_audit_log;
+create trigger tm003_audit_immutable before update or delete on public.tm003_audit_log for each row execute function public.tm003_prevent_audit_mutation();
+
+revoke all on function public.tm003_booking_snapshot(uuid) from public, anon;
+grant execute on function public.tm003_booking_snapshot(uuid) to authenticated, service_role;
+revoke all on function public.tm003_transition_booking(uuid,tm003_booking_status,text,uuid) from public,anon,authenticated;
+revoke all on function public.tm003_create_booking_lock(uuid,jsonb,uuid,uuid) from public,anon,authenticated;
+revoke all on function public.tm003_request_change(uuid,text,jsonb,tm003_change_class,uuid,uuid) from public,anon,authenticated;
+revoke all on function public.tm003_approve_change(uuid,uuid,text) from public,anon,authenticated;
+revoke all on function public.tm003_apply_change(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.tm003_transition_booking(uuid,tm003_booking_status,text,uuid) to service_role;
+grant execute on function public.tm003_create_booking_lock(uuid,jsonb,uuid,uuid) to service_role;
+grant execute on function public.tm003_request_change(uuid,text,jsonb,tm003_change_class,uuid,uuid) to service_role;
+grant execute on function public.tm003_approve_change(uuid,uuid,text) to service_role;
+grant execute on function public.tm003_apply_change(uuid,uuid) to service_role;
