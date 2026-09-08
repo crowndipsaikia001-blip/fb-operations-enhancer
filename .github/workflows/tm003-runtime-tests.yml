@@ -91,6 +91,27 @@ jobs:
       - name: Run TM-003 governance fixtures
         run: docker exec -i tm003-postgres psql -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/test_tm003_v1.sql
 
+      - name: Run TM-003 security-path smoke checks
+        run: |
+          set -euo pipefail
+          cat <<'SQL' | docker exec -i tm003-postgres psql -v ON_ERROR_STOP=1 -U postgres -d postgres
+          begin;
+          create temporary table tm003_security_context(actor_id uuid) on commit drop;
+          insert into public.tm003_operators(full_name, role_code)
+          values ('TM003 Security Smoke Admin','admin')
+          returning id into temporary table tm003_new_operator;
+          insert into tm003_security_context(actor_id) select id from tm003_new_operator;
+          select set_config('tm003.actor_operator_id',(select actor_id::text from tm003_security_context),false);
+          do $$
+          begin
+            if public.tm003_execution_actor_id() is null then
+              raise exception 'FAIL execution actor resolution';
+            end if;
+          end;
+          $$;
+          rollback;
+          SQL
+
       - name: Cleanup
         if: always()
         run: docker rm -f tm003-postgres || true
