@@ -265,7 +265,7 @@ begin
   set guest_name=coalesce(v_patch->>'guest_name',guest_name),
       guest_contact=coalesce(v_patch->>'guest_contact',guest_contact),
       booking_date=coalesce((v_patch->>'booking_date')::date,booking_date),
-      tentative_time=coalesce(v_patch->>'tentative_time',tentative_time),
+      tentative_time=coalesce((v_patch->>'tentative_time')::timestamptz,tentative_time),
       pax_planned=coalesce((v_patch->>'pax_planned')::integer,pax_planned),
       pax_confirmed=coalesce((v_patch->>'pax_confirmed')::integer,pax_confirmed),
       booking_mode=coalesce(v_patch->>'booking_mode',booking_mode),
