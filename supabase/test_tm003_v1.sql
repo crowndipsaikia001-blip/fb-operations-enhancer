@@ -1,4 +1,4 @@
--- TM-003 deterministic governance test scenarios v6
+-- TM-003 deterministic governance test scenarios v7
 -- Disposable/local test database only. Entire fixture rolls back.
 
 begin;
@@ -77,10 +77,9 @@ do $$ begin
   end;
 end $$;
 
--- Pre-lock negative case: clear actor context and verify the security boundary.
-select set_config('tm003.actor_operator_id','',false);
-
+-- Pre-lock negative case: explicitly clear actor context inside the same DO block.
 do $$ begin
+  perform set_config('tm003.actor_operator_id','',false);
   begin
     perform public.tm003_create_booking_lock(
       (select id from public.tm003_bookings where booking_id='BK-TEST-000001'),
@@ -92,7 +91,13 @@ do $$ begin
   end;
 end $$;
 
-select set_config('tm003.actor_operator_id',(select admin_id::text from tm003_test_context),false);
+-- Restore the trusted test execution actor in the same block that establishes it.
+do $$ begin
+  perform set_config('tm003.actor_operator_id',(select admin_id::text from tm003_test_context),false);
+  if public.tm003_execution_actor_id() <> (select admin_id from tm003_test_context) then
+    raise exception 'FAIL execution actor context was not restored';
+  end if;
+end $$;
 
 update public.tm003_bookings
 set commercial_ready=true, operational_ready=true, readiness_state='READY_FOR_LOCK'
@@ -136,7 +141,12 @@ do $$ begin
 end $$;
 
 -- Staff creates a commercial change request. Execution actor is staff.
-select set_config('tm003.actor_operator_id',(select staff_id::text from tm003_test_context),false);
+do $$ begin
+  perform set_config('tm003.actor_operator_id',(select staff_id::text from tm003_test_context),false);
+  if public.tm003_execution_actor_id() <> (select staff_id from tm003_test_context) then
+    raise exception 'FAIL staff execution actor context';
+  end if;
+end $$;
 
 select public.tm003_request_change(
   (select id from public.tm003_bookings where booking_id='BK-TEST-000001'),
