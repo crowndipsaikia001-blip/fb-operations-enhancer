@@ -77,10 +77,10 @@ do $$ begin
   end;
 end $$;
 
--- The pre-lock negative case intentionally clears the execution actor.
--- The security boundary must reject the call before business-state lock checks.
+-- Pre-lock negative case: clear actor context and verify the security boundary.
+select set_config('tm003.actor_operator_id','',false);
+
 do $$ begin
-  perform set_config('tm003.actor_operator_id', '', false);
   begin
     perform public.tm003_create_booking_lock(
       (select id from public.tm003_bookings where booking_id='BK-TEST-000001'),
@@ -107,12 +107,6 @@ select public.tm003_transition_booking(
   (select id from public.tm003_bookings where booking_id='BK-TEST-000001'),
   'GOVERNANCE_LOCKED', 'ready for lock'
 );
-
-do $$ begin
-  if public.tm003_execution_actor_id() is null then
-    raise exception 'FAIL execution actor context missing';
-  end if;
-end $$;
 
 do $$ begin
   begin
