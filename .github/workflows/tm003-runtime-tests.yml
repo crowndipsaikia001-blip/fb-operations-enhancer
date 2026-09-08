@@ -48,6 +48,9 @@ jobs:
           set -euo pipefail
           cat <<'SQL' | docker exec -i tm003-postgres psql -v ON_ERROR_STOP=1 -U postgres -d postgres
           create schema auth;
+          create role anon;
+          create role authenticated;
+          create role service_role;
           create table auth.users (id uuid primary key);
           create or replace function auth.uid()
           returns uuid
