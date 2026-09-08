@@ -41,13 +41,10 @@ begin
   values(v_property, v_other_property, v_admin, v_manager, v_supervisor, v_staff, v_outsider_manager);
 end $$;
 
--- Governed mutations resolve the execution actor from the session context.
--- The isolated runtime harness uses a trusted service-role simulation.
-select set_config(
-  'tm003.actor_operator_id',
-  (select admin_id::text from tm003_test_context),
-  false
-);
+select set_config('tm003.actor_operator_id',(select admin_id::text from tm003_test_context),false);
+
+-- The governance lifecycle requires booking confirmation before governance lock.
+-- This fixture explicitly exercises that gate rather than treating TENTATIVE as lockable.
 
 do $$ begin
   if public.tm003_role_rank('admin'::tm003_role_code) >= public.tm003_role_rank('manager'::tm003_role_code)
@@ -102,6 +99,11 @@ where booking_id='BK-TEST-000001';
 
 select public.tm003_transition_booking(
   (select id from public.tm003_bookings where booking_id='BK-TEST-000001'),
+  'CONFIRMED', 'confirmed for lock test', (select admin_id from tm003_test_context)
+);
+
+select public.tm003_transition_booking(
+  (select id from public.tm003_bookings where booking_id='BK-TEST-000001'),
   'GOVERNANCE_LOCKED', 'ready for lock', (select admin_id from tm003_test_context)
 );
 
@@ -148,7 +150,6 @@ do $$ begin
   end if;
 end $$;
 
--- Test actor mismatch explicitly. Change-request creation must reject a spoofed requester.
 do $$ begin
   begin
     perform public.tm003_request_change(
@@ -163,12 +164,7 @@ do $$ begin
   end;
 end $$;
 
--- Switch trusted execution context to the manager who will approve/apply the change.
-select set_config(
-  'tm003.actor_operator_id',
-  (select manager_id::text from tm003_test_context),
-  false
-);
+select set_config('tm003.actor_operator_id',(select manager_id::text from tm003_test_context),false);
 
 do $$ begin
   begin
@@ -182,12 +178,7 @@ do $$ begin
   end;
 end $$;
 
--- Move to a property-outsider manager in the trusted execution context.
-select set_config(
-  'tm003.actor_operator_id',
-  (select outsider_manager_id::text from tm003_test_context),
-  false
-);
+select set_config('tm003.actor_operator_id',(select outsider_manager_id::text from tm003_test_context),false);
 
 do $$ begin
   begin
@@ -201,11 +192,7 @@ do $$ begin
   end;
 end $$;
 
-select set_config(
-  'tm003.actor_operator_id',
-  (select manager_id::text from tm003_test_context),
-  false
-);
+select set_config('tm003.actor_operator_id',(select manager_id::text from tm003_test_context),false);
 
 select public.tm003_approve_change(
   (select id from public.tm003_change_requests order by created_at desc limit 1),
@@ -224,7 +211,6 @@ do $$ begin
   end;
 end $$;
 
--- Unsupported patch rejected; use current request row as a safe negative fixture.
 do $$ begin
   update public.tm003_change_requests
   set proposed_patch=jsonb_build_object('arbitrary_field','bad')
@@ -289,5 +275,5 @@ do $$ begin
   ) then raise exception 'FAIL change audit missing'; end if;
 end $$;
 
-raise notice 'TM-003 HARD GATE PASSED: lifecycle -> lock v1 -> approval -> deterministic apply -> lock v2 -> audit';
+raise notice 'TM-003 HARD GATE PASSED: lifecycle -> confirmation -> governance lock v1 -> approval -> deterministic apply -> lock v2 -> audit';
 rollback;
