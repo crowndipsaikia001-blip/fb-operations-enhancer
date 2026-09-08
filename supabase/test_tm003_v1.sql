@@ -1,4 +1,4 @@
--- TM-003 deterministic governance test scenarios v5
+-- TM-003 deterministic governance test scenarios v6
 -- Disposable/local test database only. Entire fixture rolls back.
 
 begin;
@@ -77,23 +77,22 @@ do $$ begin
   end;
 end $$;
 
--- Lock must remain unreachable before the booking is governance-locked.
--- The actor model is asserted separately; this test accepts either guard firing first.
+-- The pre-lock negative case intentionally runs without an execution actor.
+-- The security boundary should reject the call before business-state lock checks.
 do $$ begin
+  perform set_config('tm003.actor_operator_id', '', false);
   begin
     perform public.tm003_create_booking_lock(
       (select id from public.tm003_bookings where booking_id='BK-TEST-000001'),
       jsonb_build_object('test', true), null
     );
-    raise exception 'FAIL lock accepted before governance lock';
+    raise exception 'FAIL unauthenticated lock call accepted';
   exception when others then
-    if position('authenticated operator' in lower(sqlerrm)) = 0
-       and position('governance_locked' in lower(sqlerrm)) = 0
-       and position('ready_for_lock' in lower(sqlerrm)) = 0 then
-      raise;
-    end if;
+    if position('authenticated operator' in lower(sqlerrm)) = 0 then raise; end if;
   end;
 end $$;
+
+select set_config('tm003.actor_operator_id',(select admin_id::text from tm003_test_context),false);
 
 update public.tm003_bookings
 set commercial_ready=true, operational_ready=true, readiness_state='READY_FOR_LOCK'
@@ -109,7 +108,6 @@ select public.tm003_transition_booking(
   'GOVERNANCE_LOCKED', 'ready for lock'
 );
 
--- Lock creation is now executed with an explicit actor context.
 do $$ begin
   if public.tm003_current_execution_actor_id() is null then
     raise exception 'FAIL execution actor context missing';
