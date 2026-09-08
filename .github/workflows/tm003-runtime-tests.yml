@@ -1,0 +1,40 @@
+name: TM-003 Runtime SQL Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/tm003-runtime-tests.yml'
+  push:
+    branches:
+      - 'feat/tm-003-booking-command-v1'
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/tm003-runtime-tests.yml'
+  workflow_dispatch:
+
+jobs:
+  database-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start local Supabase database
+        run: supabase db start
+
+      - name: Apply repository migrations
+        run: supabase db reset
+
+      - name: Run TM-003 static contract checks
+        run: supabase test db --file supabase/test_tm003_static_contracts.sql
+
+      - name: Run TM-003 governance fixtures
+        run: supabase test db --file supabase/test_tm003_v1.sql
