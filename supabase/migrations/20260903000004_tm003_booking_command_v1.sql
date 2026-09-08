@@ -341,20 +341,20 @@ create policy tm003_bookings_select on tm003_bookings
 create policy tm003_signals_select on tm003_signals
   for select using (tm003_has_property_access(property_id, 'staff'));
 create policy tm003_events_select on tm003_booking_events
-  for select using (exists (select 1 from tm003_bookings b where b.id = booking_id and tm003_has_property_access(b.property_id, 'staff')));
+  for select using (exists (select 1 from tm003_bookings b where b.id = tm003_booking_events.booking_id and tm003_has_property_access(b.property_id, 'staff')));
 create policy tm003_locks_select on tm003_booking_locks
-  for select using (exists (select 1 from tm003_bookings b where b.id = booking_id and tm003_has_property_access(b.property_id, 'staff')));
+  for select using (exists (select 1 from tm003_bookings b where b.id = tm003_booking_locks.booking_id and tm003_has_property_access(b.property_id, 'staff')));
 create policy tm003_change_requests_select on tm003_change_requests
-  for select using (exists (select 1 from tm003_bookings b where b.id = booking_id and tm003_has_property_access(b.property_id, 'staff')));
+  for select using (exists (select 1 from tm003_bookings b where b.id = tm003_change_requests.booking_id and tm003_has_property_access(b.property_id, 'staff')));
 create policy tm003_tasks_select on tm003_tasks
-  for select using (exists (select 1 from tm003_bookings b where b.id = booking_id and tm003_has_property_access(b.property_id, 'staff')));
+  for select using (exists (select 1 from tm003_bookings b where b.id = tm003_tasks.booking_id and tm003_has_property_access(b.property_id, 'staff')));
 create policy tm003_escalations_select on tm003_escalations
   for select using (
     booking_id is null
     or exists (select 1 from tm003_bookings b where b.id = tm003_escalations.booking_id and tm003_has_property_access(b.property_id, 'staff'))
   );
 create policy tm003_outcomes_select on tm003_outcomes
-  for select using (exists (select 1 from tm003_bookings b where b.id = booking_id and tm003_has_property_access(b.property_id, 'staff')));
+  for select using (exists (select 1 from tm003_bookings b where b.id = tm003_outcomes.booking_id and tm003_has_property_access(b.property_id, 'staff')));
 create policy tm003_audit_select on tm003_audit_log
   for select using (
     booking_id is null
