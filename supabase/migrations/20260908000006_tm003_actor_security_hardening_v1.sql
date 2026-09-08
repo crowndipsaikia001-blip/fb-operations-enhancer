@@ -1,0 +1,321 @@
+-- TM-003 actor security hardening V1
+-- Consequential mutations must derive the actor from the authenticated operator context.
+-- Trusted server-side service-role execution may establish the operator through a transaction-local setting.
+-- No client-supplied operator id is trusted.
+
+create or replace function public.tm003_execution_actor_id()
+returns uuid
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_context text;
+  v_actor uuid;
+begin
+  v_context := current_setting('tm003.actor_operator_id', true);
+  if v_context is not null and v_context <> '' then
+    begin
+      v_actor := v_context::uuid;
+    exception when invalid_text_representation then
+      raise exception 'TM-003 invalid execution actor context';
+    end;
+    if not exists (
+      select 1 from public.tm003_operators
+      where id = v_actor and is_active = true
+    ) then
+      raise exception 'TM-003 execution actor is not an active operator';
+    end if;
+    return v_actor;
+  end if;
+
+  return public.tm003_current_operator_id();
+end;
+$$;
+
+revoke execute on function public.tm003_execution_actor_id() from public, anon;
+grant execute on function public.tm003_execution_actor_id() to authenticated, service_role;
+
+-- Prevent untrusted clients from invoking governed mutation functions directly.
+-- Server-side code uses service_role plus a transaction-local tm003.actor_operator_id setting.
+revoke execute on function public.tm003_transition_booking(uuid, tm003_booking_status, text, uuid) from public, anon, authenticated;
+revoke execute on function public.tm003_request_change(uuid, text, jsonb, tm003_change_class, uuid, uuid) from public, anon, authenticated;
+revoke execute on function public.tm003_approve_change(uuid, uuid, text) from public, anon, authenticated;
+revoke execute on function public.tm003_apply_change(uuid, uuid) from public, anon, authenticated;
+revoke execute on function public.tm003_create_booking_lock(uuid, jsonb, uuid, uuid) from public, anon, authenticated;
+
+grant execute on function public.tm003_transition_booking(uuid, tm003_booking_status, text, uuid) to service_role;
+grant execute on function public.tm003_request_change(uuid, text, jsonb, tm003_change_class, uuid, uuid) to service_role;
+grant execute on function public.tm003_approve_change(uuid, uuid, text) to service_role;
+grant execute on function public.tm003_apply_change(uuid, uuid) to service_role;
+grant execute on function public.tm003_create_booking_lock(uuid, jsonb, uuid, uuid) to service_role;
+
+-- Replace caller-controlled actor resolution in the governed mutation functions.
+create or replace function public.tm003_transition_booking(
+  p_booking_id uuid,
+  p_to_status tm003_booking_status,
+  p_reason text default null,
+  p_actor_operator_id uuid default null
+)
+returns public.tm003_bookings
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_before public.tm003_bookings%rowtype;
+  v_after public.tm003_bookings%rowtype;
+  v_actor uuid;
+  v_allowed boolean := false;
+begin
+  select * into v_before from public.tm003_bookings where id = p_booking_id for update;
+  if not found then raise exception 'TM-003 booking not found: %', p_booking_id; end if;
+
+  v_actor := public.tm003_execution_actor_id();
+  if v_actor is null then raise exception 'TM-003 transition requires an authenticated execution actor'; end if;
+  if p_actor_operator_id is not null and p_actor_operator_id <> v_actor then
+    raise exception 'TM-003 caller-supplied actor does not match execution actor';
+  end if;
+
+  if v_before.status = p_to_status then return v_before; end if;
+
+  v_allowed := case v_before.status
+    when 'ENQUIRY' then p_to_status in ('TENTATIVE','AWAITING_INFORMATION','CANCELLED','ON_HOLD')
+    when 'TENTATIVE' then p_to_status in ('AWAITING_INFORMATION','AWAITING_ADVANCE','CONFIRMED','CANCELLED','ON_HOLD','EXCEPTION')
+    when 'AWAITING_INFORMATION' then p_to_status in ('TENTATIVE','AWAITING_INFORMATION','AWAITING_ADVANCE','CONFIRMED','CANCELLED','ON_HOLD','EXCEPTION')
+    when 'AWAITING_ADVANCE' then p_to_status in ('CONFIRMED','CANCELLED','ON_HOLD','EXCEPTION')
+    when 'CONFIRMED' then p_to_status in ('GOVERNANCE_LOCKED','ON_HOLD','CANCELLED','EXCEPTION')
+    when 'GOVERNANCE_LOCKED' then p_to_status in ('PREPARING','ON_HOLD','EXCEPTION')
+    when 'PREPARING' then p_to_status in ('READY','ON_HOLD','EXCEPTION')
+    when 'READY' then p_to_status in ('LIVE','ON_HOLD','EXCEPTION')
+    when 'LIVE' then p_to_status in ('CLOSING','EXCEPTION')
+    when 'CLOSING' then p_to_status in ('COMPLETED','EXCEPTION')
+    when 'COMPLETED' then false
+    when 'CANCELLED' then false
+    when 'ON_HOLD' then p_to_status in ('TENTATIVE','AWAITING_INFORMATION','AWAITING_ADVANCE','CONFIRMED','GOVERNANCE_LOCKED','PREPARING','READY','LIVE','CLOSING','CANCELLED','EXCEPTION')
+    when 'EXCEPTION' then p_to_status in ('ON_HOLD','CANCELLED','TENTATIVE','AWAITING_INFORMATION','AWAITING_ADVANCE','CONFIRMED','GOVERNANCE_LOCKED','PREPARING','READY','LIVE','CLOSING')
+    else false
+  end;
+
+  if not v_allowed then raise exception 'TM-003 invalid booking transition: % -> %', v_before.status, p_to_status; end if;
+
+  if p_to_status = 'GOVERNANCE_LOCKED' and not (
+    v_before.commercial_ready and v_before.operational_ready and v_before.readiness_state = 'READY_FOR_LOCK'
+  ) then
+    raise exception 'TM-003 booking is not ready for governance lock';
+  end if;
+
+  update public.tm003_bookings
+  set status = p_to_status,
+      readiness_state = case
+        when p_to_status in ('ON_HOLD','EXCEPTION') then 'EXCEPTION'::tm003_readiness_state
+        when p_to_status = 'GOVERNANCE_LOCKED' then 'READY_FOR_LOCK'::tm003_readiness_state
+        when p_to_status in ('READY','LIVE') and execution_ready then 'EXECUTION_READY'::tm003_readiness_state
+        else readiness_state
+      end,
+      updated_at = now()
+  where id = p_booking_id
+  returning * into v_after;
+
+  insert into public.tm003_audit_log(booking_id, actor_operator_id, action, previous_data, new_data, metadata)
+  values(
+    p_booking_id, v_actor, 'BOOKING_STATUS_TRANSITION',
+    jsonb_build_object('status', v_before.status),
+    jsonb_build_object('status', v_after.status),
+    jsonb_build_object('reason', p_reason)
+  );
+  return v_after;
+end;
+$$;
+
+create or replace function public.tm003_request_change(
+  p_booking_id uuid,
+  p_summary text,
+  p_proposed_patch jsonb,
+  p_change_class tm003_change_class default null,
+  p_signal_id uuid default null,
+  p_requested_by uuid default null
+)
+returns public.tm003_change_requests
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_id uuid := gen_random_uuid();
+  v_actor uuid;
+  v_request public.tm003_change_requests%rowtype;
+begin
+  v_actor := public.tm003_execution_actor_id();
+  if v_actor is null then raise exception 'TM-003 change request requires an authenticated execution actor'; end if;
+  if p_requested_by is not null and p_requested_by <> v_actor then
+    raise exception 'TM-003 caller-supplied requester does not match execution actor';
+  end if;
+  if not exists(select 1 from public.tm003_bookings where id = p_booking_id) then raise exception 'TM-003 booking not found: %', p_booking_id; end if;
+
+  insert into public.tm003_change_requests(
+    id, change_request_id, booking_id, signal_id, requested_by,
+    change_class, summary, proposed_patch, approval_required, approval_status
+  ) values(
+    v_id,
+    'CR-' || to_char(current_date,'YYYYMMDD') || '-' || upper(substr(replace(gen_random_uuid()::text,'-',''),1,6)),
+    p_booking_id, p_signal_id, v_actor,
+    p_change_class, p_summary, coalesce(p_proposed_patch,'{}'::jsonb), true, 'PENDING'
+  ) returning * into v_request;
+
+  insert into public.tm003_audit_log(booking_id, signal_id, actor_operator_id, action, new_data)
+  values(p_booking_id, p_signal_id, v_actor, 'CHANGE_REQUEST_CREATED', to_jsonb(v_request));
+  return v_request;
+end;
+$$;
+
+create or replace function public.tm003_approve_change(
+  p_change_request_id uuid,
+  p_actor_operator_id uuid default null,
+  p_resolution text default null
+)
+returns public.tm003_change_requests
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_request public.tm003_change_requests%rowtype;
+  v_actor uuid;
+  v_role tm003_role_code;
+  v_property uuid;
+begin
+  select * into v_request from public.tm003_change_requests where id = p_change_request_id for update;
+  if not found then raise exception 'TM-003 change request not found: %', p_change_request_id; end if;
+  if v_request.approval_status <> 'PENDING' then raise exception 'TM-003 change request is not pending approval'; end if;
+
+  v_actor := public.tm003_execution_actor_id();
+  if v_actor is null then raise exception 'TM-003 approval requires an authenticated execution actor'; end if;
+  if p_actor_operator_id is not null and p_actor_operator_id <> v_actor then
+    raise exception 'TM-003 caller-supplied approver does not match execution actor';
+  end if;
+
+  select property_id into v_property from public.tm003_bookings where id = v_request.booking_id;
+  select pm.role_code into v_role
+  from public.tm003_property_memberships pm
+  where pm.property_id = v_property and pm.operator_id = v_actor and pm.is_active = true;
+  if v_role is null or public.tm003_role_rank(v_role) > public.tm003_role_rank('manager'::tm003_role_code) then
+    raise exception 'TM-003 material change approval requires manager authority in the booking property';
+  end if;
+
+  update public.tm003_change_requests
+  set approval_status='APPROVED', approved_by=v_actor, approved_at=now(),
+      validation_result=jsonb_build_object('approved',true,'resolution',p_resolution,'validated_at',now())
+  where id=p_change_request_id returning * into v_request;
+
+  insert into public.tm003_audit_log(booking_id, signal_id, actor_operator_id, action, new_data, metadata)
+  values(v_request.booking_id,v_request.signal_id,v_actor,'CHANGE_REQUEST_APPROVED',to_jsonb(v_request),jsonb_build_object('resolution',p_resolution));
+  return v_request;
+end;
+$$;
+
+create or replace function public.tm003_apply_change(
+  p_change_request_id uuid,
+  p_actor_operator_id uuid default null
+)
+returns public.tm003_bookings
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_request public.tm003_change_requests%rowtype;
+  v_before public.tm003_bookings%rowtype;
+  v_after public.tm003_bookings%rowtype;
+  v_actor uuid;
+  v_patch jsonb;
+  v_key text;
+  v_unknown text[] := '{}';
+  v_new_lock public.tm003_booking_locks%rowtype;
+  v_snapshot jsonb;
+begin
+  select * into v_request from public.tm003_change_requests where id=p_change_request_id for update;
+  if not found then raise exception 'TM-003 change request not found: %', p_change_request_id; end if;
+  if v_request.approval_status <> 'APPROVED' then raise exception 'TM-003 change request must be approved before application'; end if;
+  if v_request.change_class in ('IMPOSSIBLE','BLOCKED') then raise exception 'TM-003 change class % cannot be applied', v_request.change_class; end if;
+
+  v_actor := public.tm003_execution_actor_id();
+  if v_actor is null then raise exception 'TM-003 apply requires an authenticated execution actor'; end if;
+  if p_actor_operator_id is not null and p_actor_operator_id <> v_actor then
+    raise exception 'TM-003 caller-supplied applier does not match execution actor';
+  end if;
+
+  select * into v_before from public.tm003_bookings where id=v_request.booking_id for update;
+  if not found then raise exception 'TM-003 booking not found: %', v_request.booking_id; end if;
+  if v_before.status <> 'GOVERNANCE_LOCKED' or v_before.latest_lock_id is null then
+    raise exception 'TM-003 approved change application requires an existing governance lock';
+  end if;
+
+  v_patch := coalesce(v_request.proposed_patch,'{}'::jsonb);
+  for v_key in select jsonb_object_keys(v_patch) loop
+    if v_key not in (
+      'guest_name','guest_contact','booking_date','tentative_time','pax_planned','pax_confirmed',
+      'booking_mode','zone','package_name','menu_name','commercial_notes','dietary_requirements',
+      'special_requests','staffing_notes','operational_notes','advance_required','advance_received','total_expected'
+    ) then
+      v_unknown := array_append(v_unknown,v_key);
+    end if;
+  end loop;
+  if cardinality(v_unknown) > 0 then raise exception 'TM-003 unsupported change fields: %', v_unknown; end if;
+
+  update public.tm003_bookings
+  set guest_name=coalesce(v_patch->>'guest_name',guest_name),
+      guest_contact=coalesce(v_patch->>'guest_contact',guest_contact),
+      booking_date=coalesce((v_patch->>'booking_date')::date,booking_date),
+      tentative_time=coalesce(v_patch->>'tentative_time',tentative_time),
+      pax_planned=coalesce((v_patch->>'pax_planned')::integer,pax_planned),
+      pax_confirmed=coalesce((v_patch->>'pax_confirmed')::integer,pax_confirmed),
+      booking_mode=coalesce(v_patch->>'booking_mode',booking_mode),
+      zone=coalesce(v_patch->>'zone',zone),
+      package_name=coalesce(v_patch->>'package_name',package_name),
+      menu_name=coalesce(v_patch->>'menu_name',menu_name),
+      commercial_notes=coalesce(v_patch->>'commercial_notes',commercial_notes),
+      dietary_requirements=coalesce(v_patch->>'dietary_requirements',dietary_requirements),
+      special_requests=coalesce(v_patch->>'special_requests',special_requests),
+      staffing_notes=coalesce(v_patch->>'staffing_notes',staffing_notes),
+      operational_notes=coalesce(v_patch->>'operational_notes',operational_notes),
+      advance_required=coalesce((v_patch->>'advance_required')::numeric,advance_required),
+      advance_received=coalesce((v_patch->>'advance_received')::numeric,advance_received),
+      total_expected=coalesce((v_patch->>'total_expected')::numeric,total_expected),
+      updated_at=now(),
+      readiness_state='READY_FOR_LOCK'::tm003_readiness_state
+  where id=v_request.booking_id
+  returning * into v_after;
+
+  insert into public.tm003_booking_events(event_id,booking_id,signal_id,event_type,actor_operator_id,payload)
+  values(
+    'EVT-' || to_char(current_date,'YYYYMMDD') || '-' || upper(substr(replace(gen_random_uuid()::text,'-',''),1,6)),
+    v_after.id,v_request.signal_id,'GOVERNED_CHANGE_APPLIED',v_actor,
+    jsonb_build_object('change_request_id',v_request.id,'change_request_key',v_request.change_request_id,'patch',v_patch)
+  );
+
+  v_snapshot := public.tm003_booking_snapshot(v_after.id);
+
+  select * into v_new_lock
+  from public.tm003_create_booking_lock(
+    v_after.id, v_snapshot, null, v_actor
+  );
+
+  update public.tm003_change_requests
+  set applied_at=now(), approval_status='APPROVED', validation_result=jsonb_build_object('applied',true,'lock_version',v_new_lock.version)
+  where id=v_request.id;
+
+  insert into public.tm003_audit_log(booking_id,signal_id,actor_operator_id,action,previous_data,new_data,metadata)
+  values(
+    v_after.id,v_request.signal_id,v_actor,'CHANGE_APPLIED',
+    public.tm003_booking_snapshot(v_before),
+    v_snapshot,
+    jsonb_build_object('change_request_id',v_request.id,'lock_version',v_new_lock.version)
+  );
+
+  return v_after;
+end;
+$$;
+
+revoke execute on function public.tm003_execution_actor_id() from anon;
