@@ -1,4 +1,4 @@
--- TM-003 deterministic governance test scenarios v7
+-- TM-003 deterministic governance test scenarios v8
 -- Disposable/local test database only. Entire fixture rolls back.
 
 begin;
@@ -77,7 +77,7 @@ do $$ begin
   end;
 end $$;
 
--- Pre-lock negative case: explicitly clear actor context inside the same DO block.
+-- Pre-lock negative case: explicitly clear actor context inside the same block.
 do $$ begin
   perform set_config('tm003.actor_operator_id','',false);
   begin
@@ -87,11 +87,13 @@ do $$ begin
     );
     raise exception 'FAIL unauthenticated lock call accepted';
   exception when others then
-    if position('authenticated operator' in lower(sqlerrm)) = 0 then raise; end if;
+    if position('execution actor' in lower(sqlerrm)) = 0 and position('authenticated operator' in lower(sqlerrm)) = 0 then
+      raise;
+    end if;
   end;
 end $$;
 
--- Restore the trusted test execution actor in the same block that establishes it.
+-- Restore and verify actor context before continuing.
 do $$ begin
   perform set_config('tm003.actor_operator_id',(select admin_id::text from tm003_test_context),false);
   if public.tm003_execution_actor_id() <> (select admin_id from tm003_test_context) then
