@@ -27,14 +27,38 @@ jobs:
         with:
           version: latest
 
-      - name: Start local Supabase database
-        run: supabase db start
+      - name: Start isolated PostgreSQL
+        run: |
+          docker run -d --name tm003-postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=postgres \
+            -p 54322:5432 \
+            postgres:17.6
+          for i in {1..30}; do
+            if docker exec tm003-postgres pg_isready -U postgres -d postgres >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          docker exec tm003-postgres pg_isready -U postgres -d postgres
 
-      - name: Apply repository migrations
-        run: supabase db reset
+      - name: Apply TM-003 migrations only
+        run: |
+          set -euo pipefail
+          for file in \
+            supabase/migrations/20260903000004_tm003_booking_command_v1.sql \
+            supabase/migrations/20260903000005_tm003_governance_enforcement_v1.sql \
+            supabase/migrations/20260908000006_tm003_actor_security_hardening_v1.sql; do
+            echo "Applying $file"
+            docker exec -i tm003-postgres psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$file"
+          done
 
       - name: Run TM-003 static contract checks
-        run: supabase test db --file supabase/test_tm003_static_contracts.sql
+        run: docker exec -i tm003-postgres psql -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/test_tm003_static_contracts.sql
 
       - name: Run TM-003 governance fixtures
-        run: supabase test db --file supabase/test_tm003_v1.sql
+        run: docker exec -i tm003-postgres psql -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/test_tm003_v1.sql
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f tm003-postgres || true
