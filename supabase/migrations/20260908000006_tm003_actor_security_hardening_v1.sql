@@ -386,7 +386,7 @@ revoke all on function public.tm003_booking_snapshot(uuid) from public, anon;
 grant execute on function public.tm003_booking_snapshot(uuid) to authenticated, service_role;
 revoke all on function public.tm003_transition_booking(uuid,tm003_booking_status,text,uuid) from public,anon,authenticated;
 revoke all on function public.tm003_create_booking_lock(uuid,jsonb,uuid,uuid) from public,anon,authenticated;
-revoke all on function public.tm003_request_change(uuid,text,jsonb,tm003_change_class,uuid,uuid) from public,anon,authenticated;
+revoke all on function public.tm003_request_change(uuid,text,jsonb,uuid) from public,anon,authenticated;
 revoke all on function public.tm003_approve_change(uuid,uuid,text) from public,anon,authenticated;
 revoke all on function public.tm003_apply_change(uuid,uuid) from public,anon,authenticated;
 grant execute on function public.tm003_transition_booking(uuid,tm003_booking_status,text,uuid) to service_role;
