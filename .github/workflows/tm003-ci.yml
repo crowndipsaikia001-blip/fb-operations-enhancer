@@ -26,6 +26,10 @@ on:
 jobs:
   web-validation:
     runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-anon-key-placeholder
+      SUPABASE_SERVICE_ROLE_KEY: ci-service-role-placeholder
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,7 +37,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -44,6 +48,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Build
+        run: npm run build
 
   tm003-static-contract:
     runs-on: ubuntu-latest
@@ -57,6 +64,7 @@ jobs:
           set -euo pipefail
           required=(
             "supabase/migrations/20260903000004_tm003_booking_command_v1.sql"
+            "supabase/migrations/20260903000005_tm003_governance_enforcement_v1.sql"
             "supabase/test_tm003_v1.sql"
             "supabase/test_tm003_static_contracts.sql"
             "supabase/verification_tm003_v1.sql"
@@ -70,7 +78,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          files=$(find supabase/migrations supabase -maxdepth 2 -type f \( -name '*tm003*.sql' -o -name '20260903000004_tm003_booking_command_v1.sql' \) -print)
+          files=$(find supabase/migrations supabase -maxdepth 2 -type f \( -name '*tm003*.sql' -o -name '20260903000004_tm003_booking_command_v1.sql' -o -name '20260903000005_tm003_governance_enforcement_v1.sql' \) -print)
           if grep -Ein '(^|[[:space:];])(drop[[:space:]]+(table|type|schema)|truncate[[:space:]]+)' $files; then
             echo 'FAIL: destructive SQL found'
             exit 1
