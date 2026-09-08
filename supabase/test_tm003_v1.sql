@@ -1,4 +1,4 @@
--- TM-003 deterministic governance test scenarios v2
+-- TM-003 deterministic governance test scenarios v3
 -- Disposable/local test database only. Entire fixture rolls back.
 
 begin;
@@ -43,9 +43,6 @@ end $$;
 
 select set_config('tm003.actor_operator_id',(select admin_id::text from tm003_test_context),false);
 
--- The governance lifecycle requires booking confirmation before governance lock.
--- This fixture explicitly exercises that gate rather than treating TENTATIVE as lockable.
-
 do $$ begin
   if public.tm003_role_rank('admin'::tm003_role_code) >= public.tm003_role_rank('manager'::tm003_role_code)
      or public.tm003_role_rank('manager'::tm003_role_code) >= public.tm003_role_rank('supervisor'::tm003_role_code)
@@ -65,14 +62,14 @@ from tm003_test_context;
 
 select public.tm003_transition_booking(
   (select id from public.tm003_bookings where booking_id='BK-TEST-000001'),
-  'TENTATIVE', 'test transition', (select admin_id from tm003_test_context)
+  'TENTATIVE', 'test transition'
 );
 
 do $$ begin
   begin
     perform public.tm003_transition_booking(
       (select id from public.tm003_bookings where booking_id='BK-TEST-000001'),
-      'LIVE', 'invalid jump', (select admin_id from tm003_test_context)
+      'LIVE', 'invalid jump'
     );
     raise exception 'FAIL invalid lifecycle transition was accepted';
   exception when others then
@@ -84,8 +81,7 @@ do $$ begin
   begin
     perform public.tm003_create_booking_lock(
       (select id from public.tm003_bookings where booking_id='BK-TEST-000001'),
-      jsonb_build_object('test', true), null,
-      (select admin_id from tm003_test_context)
+      jsonb_build_object('test', true), null
     );
     raise exception 'FAIL lock accepted before governance lock';
   exception when others then
@@ -99,20 +95,19 @@ where booking_id='BK-TEST-000001';
 
 select public.tm003_transition_booking(
   (select id from public.tm003_bookings where booking_id='BK-TEST-000001'),
-  'CONFIRMED', 'confirmed for lock test', (select admin_id from tm003_test_context)
+  'CONFIRMED', 'confirmed for lock test'
 );
 
 select public.tm003_transition_booking(
   (select id from public.tm003_bookings where booking_id='BK-TEST-000001'),
-  'GOVERNANCE_LOCKED', 'ready for lock', (select admin_id from tm003_test_context)
+  'GOVERNANCE_LOCKED', 'ready for lock'
 );
 
 do $$ begin
   begin
     perform public.tm003_create_booking_lock(
       (select id from public.tm003_bookings where booking_id='BK-TEST-000001'),
-      jsonb_build_object('booking_id','BK-TEST-000001','version',1), null,
-      (select admin_id from tm003_test_context)
+      jsonb_build_object('booking_id','BK-TEST-000001','version',1), null
     );
     raise exception 'FAIL non-canonical lock snapshot accepted';
   exception when others then
@@ -123,8 +118,7 @@ end $$;
 select public.tm003_create_booking_lock(
   (select id from public.tm003_bookings where booking_id='BK-TEST-000001'),
   public.tm003_booking_snapshot((select id from public.tm003_bookings where booking_id='BK-TEST-000001')),
-  null,
-  (select admin_id from tm003_test_context)
+  null
 );
 
 do $$ begin
@@ -136,11 +130,13 @@ do $$ begin
   end if;
 end $$;
 
+-- Staff creates a commercial change request. Execution actor is staff.
+select set_config('tm003.actor_operator_id',(select staff_id::text from tm003_test_context),false);
+
 select public.tm003_request_change(
   (select id from public.tm003_bookings where booking_id='BK-TEST-000001'),
   'Increase pax', jsonb_build_object('pax_confirmed',15),
-  'COMMERCIAL_VARIATION', null,
-  (select staff_id from tm003_test_context)
+  'COMMERCIAL_VARIATION'
 );
 
 do $$ begin
@@ -196,14 +192,14 @@ select set_config('tm003.actor_operator_id',(select manager_id::text from tm003_
 
 select public.tm003_approve_change(
   (select id from public.tm003_change_requests order by created_at desc limit 1),
-  (select manager_id from tm003_test_context), 'approved test'
+  'approved test'
 );
 
 do $$ begin
   begin
     perform public.tm003_approve_change(
       (select id from public.tm003_change_requests order by created_at desc limit 1),
-      (select manager_id from tm003_test_context), 'duplicate approval test'
+      'duplicate approval test'
     );
     raise exception 'FAIL duplicate approval accepted';
   exception when others then
@@ -217,8 +213,7 @@ do $$ begin
   where id=(select id from public.tm003_change_requests order by created_at desc limit 1);
   begin
     perform public.tm003_apply_change(
-      (select id from public.tm003_change_requests order by created_at desc limit 1),
-      (select manager_id from tm003_test_context)
+      (select id from public.tm003_change_requests order by created_at desc limit 1)
     );
     raise exception 'FAIL unsupported patch accepted';
   exception when others then
@@ -230,8 +225,7 @@ do $$ begin
 end $$;
 
 select public.tm003_apply_change(
-  (select id from public.tm003_change_requests order by created_at desc limit 1),
-  (select manager_id from tm003_test_context)
+  (select id from public.tm003_change_requests order by created_at desc limit 1)
 );
 
 do $$ begin
