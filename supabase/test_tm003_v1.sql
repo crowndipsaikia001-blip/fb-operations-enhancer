@@ -207,8 +207,11 @@ end $$;
 
 select set_config('tm003.actor_operator_id',(select manager_id::text from tm003_test_context),false);
 
+-- approve_change signature is (change_request_id, actor_operator_id, resolution)
+-- Deliberately pass NULL actor so the function derives the authenticated execution actor.
 select public.tm003_approve_change(
   (select id from public.tm003_change_requests order by created_at desc limit 1),
+  null,
   'approved test'
 );
 
@@ -216,6 +219,7 @@ do $$ begin
   begin
     perform public.tm003_approve_change(
       (select id from public.tm003_change_requests order by created_at desc limit 1),
+      null,
       'duplicate approval test'
     );
     raise exception 'FAIL duplicate approval accepted';
