@@ -66,6 +66,27 @@ The candidate branch's tree has only five tracked files in the Git tree response
 
 That makes PR #12 a broad replacement/deletion change, not a narrowly additive booking feature. Do not merge the whole PR.
 
+
+## Historical foundation source recovered
+
+A prior TM-003 foundation migration was found in repository history at commit `f158df5a4fcd`:
+
+- [Historical TM-003 foundation migration](https://github.com/crowndipsaikia001-blip/fb-operations-enhancer/blob/f158df5a4fcd/supabase/migrations/20260903000004_tm003_booking_command_v1.sql)
+- Blob SHA: `8da05aea7f0027b06868ef98e43b615ce721fae9`
+- Commit message: `refactor: make TM-003 migration self-contained`
+
+This is a useful source for recovering the missing schema, but it is **not yet approved for deployment**. The contemporaneous Gate 1.4 review document reports blockers in that schema:
+
+- `tm003_has_property_access(..., required_role)` accepts a role threshold but only checks membership existence.
+- Write authorization policies are incomplete.
+- Audit-log write and immutability guarantees are incomplete.
+- Booking lifecycle, lock creation and approval invariants are not fully enforced by deterministic database logic.
+- Operator visibility is too narrow for normal scoped operational work.
+
+The historical migration defines the expected TM-003 tables and enums, but its own review status was **NOT READY FOR PRODUCTION APPLY**. Do not simply copy it back into the active migrations folder and deploy it. Use it as a reviewed source, correct the blockers, and validate the resulting ordered chain in a disposable database.
+
+The later PR #12 branch appears to have reduced `20260903000005_tm003_governance_enforcement_v1.sql` to a no-op marker and no longer includes `20260903000004_tm003_booking_command_v1.sql`. The runtime-guard migration itself says it does not replace the canonical booking foundation. This explains the missing dependency at the current PR head.
+
 ## Dependency map and deployment gate
 
 | Layer | Required prerequisite | Verification |
